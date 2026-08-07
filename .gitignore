@@ -2,11 +2,12 @@
 venv/
 backend/venv/
 
-# Python
+# Python Cache
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 
-# Environment variables
+# Environment Variables
 .env
 
 # VS Code
@@ -14,3 +15,15 @@ __pycache__/
 
 # Logs
 *.log
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Pytest Cache (optional)
+.pytest_cache/
+
+# Build Files (optional)
+build/
+dist/
+*.egg-info/
