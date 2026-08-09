@@ -1,163 +1,208 @@
+from decimal import Decimal
+
 import pandas as pd
-from django.utils import timezone
-from statsmodels.tsa.arima.model import ARIMA
+from django.db.models import Sum
+from django.db.models.functions import TruncMonth
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from finance.models import Transaction, FinancialForecast
 
 
-def generate_forecast():
+def get_monthly_data():
+    """
+    Retrieve monthly income and expense totals
+    from transaction data.
+    """
 
-    # -----------------------------------------
-    # 1. Get transactions from PostgreSQL
-    # -----------------------------------------
-
-    transactions = Transaction.objects.values(
-        "transaction_time",
-        "amount"
+    transactions = (
+        Transaction.objects
+        .annotate(month=TruncMonth("transaction_time"))
+        .values("month", "transaction_type")
+        .annotate(total=Sum("amount"))
+        .order_by("month")
     )
 
-    if not transactions:
-        raise ValueError("No transaction data found.")
+    data = {}
 
-    df = pd.DataFrame(list(transactions))
+    for row in transactions:
+        month = row["month"]
 
-    # -----------------------------------------
-    # 2. Clean the data
-    # -----------------------------------------
+        if month not in data:
+            data[month] = {
+                "income": Decimal("0.00"),
+                "expense": Decimal("0.00"),
+            }
 
-    df["transaction_time"] = pd.to_datetime(
-        df["transaction_time"]
+        transaction_type = str(
+            row["transaction_type"]
+        ).lower()
+
+        total = row["total"] or Decimal("0.00")
+
+        # Income
+        if transaction_type == "deposit":
+            data[month]["income"] += total
+
+        # Expenses
+        elif transaction_type in [
+            "withdrawal",
+            "payment",
+            "purchase",
+        ]:
+            data[month]["expense"] += total
+
+        # Transfers are ignored
+        # because they are not actual income or expense.
+
+    return data
+
+
+def forecast_series(series, periods=12):
+    """
+    Forecast a monthly time series using SARIMA.
+
+    Uses the last 12 months as a fallback if
+    the SARIMA model cannot be fitted.
+    """
+
+    series = pd.Series(
+        series,
+        dtype="float64"
     )
 
-    df["amount"] = pd.to_numeric(
-        df["amount"],
-        errors="coerce"
-    )
+    if len(series) < 12:
+        return [float(series.mean())] * periods
 
-    df = df.dropna(
-        subset=["transaction_time", "amount"]
-    )
-
-    # -----------------------------------------
-    # 3. Convert transactions to monthly totals
-    # -----------------------------------------
-
-    df["month"] = (
-        df["transaction_time"]
-        .dt.to_period("M")
-        .dt.to_timestamp()
-    )
-
-    monthly_data = (
-        df.groupby("month")["amount"]
-        .sum()
-        .sort_index()
-    )
-
-    if len(monthly_data) < 3:
-        raise ValueError(
-            "Not enough monthly data for ARIMA forecasting."
+    try:
+        model = SARIMAX(
+            series,
+            order=(1, 1, 1),
+            seasonal_order=(1, 1, 1, 12),
+            enforce_stationarity=False,
+            enforce_invertibility=False,
         )
 
-    print("Monthly transaction data:")
-    print(monthly_data)
+        fitted_model = model.fit(
+            disp=False
+        )
 
-    # -----------------------------------------
-    # 4. Train ARIMA
-    # -----------------------------------------
+        forecast = fitted_model.forecast(
+            steps=periods
+        )
 
-    print("\nTraining ARIMA model...")
+        return [
+            max(0.0, float(value))
+            for value in forecast
+        ]
 
-    model = ARIMA(
-        monthly_data,
-        order=(1, 1, 1)
+    except Exception:
+        # Seasonal-naive fallback
+        last_12 = series.iloc[-12:].tolist()
+
+        result = []
+
+        for i in range(periods):
+            result.append(
+                max(
+                    0.0,
+                    float(last_12[i % 12])
+                )
+            )
+
+        return result
+
+
+def generate_forecast(periods=12):
+    """
+    Generate future monthly income and expense
+    forecasts and store them in FinancialForecast.
+    """
+
+    monthly_data = get_monthly_data()
+
+    if len(monthly_data) < 12:
+        raise ValueError(
+            "At least 12 months of historical "
+            "transaction data is required."
+        )
+
+    # Sort historical months
+    months = sorted(
+        monthly_data.keys()
     )
 
-    model_fit = model.fit()
+    # Historical income
+    income_values = [
+        float(
+            monthly_data[month]["income"]
+        )
+        for month in months
+    ]
 
-    print("ARIMA model trained successfully!")
+    # Historical expense
+    expense_values = [
+        float(
+            monthly_data[month]["expense"]
+        )
+        for month in months
+    ]
 
-    # -----------------------------------------
-    # 5. Forecast next 12 months
-    # -----------------------------------------
-
-    forecast_values = model_fit.forecast(
-        steps=12
+    # Generate forecasts
+    income_forecast = forecast_series(
+        income_values,
+        periods
     )
 
-    last_month = monthly_data.index.max()
-
-    forecast_dates = pd.date_range(
-        start=last_month + pd.offsets.MonthBegin(1),
-        periods=12,
-        freq="MS"
+    expense_forecast = forecast_series(
+        expense_values,
+        periods
     )
 
-    # -----------------------------------------
-    # 6. Remove previous forecasts
-    # -----------------------------------------
+    # Last available historical month
+    last_month = pd.Timestamp(
+        months[-1]
+    )
 
+    # Remove previous forecasts
     FinancialForecast.objects.all().delete()
 
-    # -----------------------------------------
-    # 7. Save new forecasts
-    # -----------------------------------------
+    forecasts = []
 
-    forecast_objects = []
+    for i in range(periods):
 
-    for forecast_date, value in zip(
-        forecast_dates,
-        forecast_values
-    ):
+        forecast_month = (
+            last_month
+            + pd.DateOffset(
+                months=i + 1
+            )
+        ).date()
 
-        predicted_income = float(value)
-
-        predicted_expense = (
-            predicted_income * 0.70
-        )
-
-        forecast_objects.append(
-            FinancialForecast(
-                forecast_month=forecast_date.date(),
-                predicted_income=predicted_income,
-                predicted_expense=predicted_expense,
-                generated_at=timezone.now()
+        predicted_income = Decimal(
+            str(
+                round(
+                    income_forecast[i],
+                    2
+                )
             )
         )
 
-    FinancialForecast.objects.bulk_create(
-        forecast_objects
-    )
-
-    print(
-        "\n12-month forecast saved successfully!"
-    )
-
-    # -----------------------------------------
-    # 8. Return JSON-friendly results
-    # -----------------------------------------
-
-    results = []
-
-    for forecast_date, value in zip(
-        forecast_dates,
-        forecast_values
-    ):
-
-        predicted_income = float(value)
-
-        results.append({
-            "forecast_month": forecast_date.strftime(
-                "%Y-%m-%d"
-            ),
-            "predicted_income": round(
-                predicted_income,
-                2
-            ),
-            "predicted_expense": round(
-                predicted_income * 0.70,
-                2
+        predicted_expense = Decimal(
+            str(
+                round(
+                    expense_forecast[i],
+                    2
+                )
             )
-        })
+        )
 
-    return results
+        forecast = FinancialForecast.objects.create(
+            forecast_month=forecast_month,
+            predicted_income=predicted_income,
+            predicted_expense=predicted_expense,
+        )
+
+        forecasts.append(
+            forecast
+        )
+
+    return forecasts

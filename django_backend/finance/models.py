@@ -1,7 +1,10 @@
+
 from django.db import models
 
 
-# ---------------- ROLES ----------------
+# ============================================================
+# ROLES
+# ============================================================
 
 class Role(models.Model):
     role_id = models.AutoField(primary_key=True)
@@ -14,7 +17,9 @@ class Role(models.Model):
         return self.role_name
 
 
-# ---------------- BRANCHES ----------------
+# ============================================================
+# BRANCHES
+# ============================================================
 
 class Branch(models.Model):
     branch_id = models.AutoField(primary_key=True)
@@ -31,7 +36,9 @@ class Branch(models.Model):
         return self.branch_name
 
 
-# ---------------- USERS ----------------
+# ============================================================
+# USERS
+# ============================================================
 
 class User(models.Model):
     user_id = models.AutoField(primary_key=True)
@@ -60,7 +67,9 @@ class User(models.Model):
         return self.username
 
 
-# ---------------- ACCOUNTS ----------------
+# ============================================================
+# ACCOUNTS
+# ============================================================
 
 class Account(models.Model):
     account_id = models.AutoField(primary_key=True)
@@ -88,38 +97,9 @@ class Account(models.Model):
         return self.account_number
 
 
-# ---------------- JOURNAL ENTRIES ----------------
-
-class JournalEntry(models.Model):
-    journal_entry_id = models.AutoField(primary_key=True)
-
-    account = models.ForeignKey(
-        Account,
-        on_delete=models.DO_NOTHING,
-        db_column="account_id"
-    )
-
-    entry_date = models.DateTimeField()
-    description = models.TextField()
-    debit = models.DecimalField(
-        max_digits=15,
-        decimal_places=2,
-        default=0
-    )
-    credit = models.DecimalField(
-        max_digits=15,
-        decimal_places=2,
-        default=0
-    )
-
-    class Meta:
-        db_table = "journal_entries"
-
-    def __str__(self):
-        return str(self.journal_entry_id)
-
-
-# ---------------- TRANSACTIONS ----------------
+# ============================================================
+# TRANSACTIONS
+# ============================================================
 
 class Transaction(models.Model):
     transaction_id = models.AutoField(primary_key=True)
@@ -141,9 +121,10 @@ class Transaction(models.Model):
     transaction_time = models.DateTimeField()
     status = models.CharField(max_length=50)
 
-    # Ground-truth label used for evaluating fraud/anomaly detection.
-    # This is NOT the AI prediction.
-    is_anomaly = models.BooleanField(default=False)
+    # PostgreSQL column is SMALLINT.
+    # 0 = normal
+    # 1 = anomaly
+    is_anomaly = models.SmallIntegerField(default=0)
 
     class Meta:
         db_table = "transactions"
@@ -152,7 +133,9 @@ class Transaction(models.Model):
         return str(self.transaction_id)
 
 
-# ---------------- FRAUD PREDICTIONS ----------------
+# ============================================================
+# FRAUD PREDICTIONS
+# ============================================================
 
 class FraudPrediction(models.Model):
     prediction_id = models.AutoField(primary_key=True)
@@ -179,31 +162,9 @@ class FraudPrediction(models.Model):
         return str(self.prediction_id)
 
 
-# ---------------- ALERTS ----------------
-
-class Alert(models.Model):
-    alert_id = models.AutoField(primary_key=True)
-
-    transaction = models.ForeignKey(
-        Transaction,
-        on_delete=models.DO_NOTHING,
-        db_column="transaction_id"
-    )
-
-    alert_type = models.CharField(max_length=100)
-    severity = models.CharField(max_length=50)
-    message = models.TextField()
-    is_resolved = models.BooleanField(default=False)
-    created_at = models.DateTimeField()
-
-    class Meta:
-        db_table = "alerts"
-
-    def __str__(self):
-        return str(self.alert_id)
-
-
-# ---------------- FINANCIAL FORECASTS ----------------
+# ============================================================
+# FINANCIAL FORECASTS
+# ============================================================
 
 class FinancialForecast(models.Model):
     forecast_id = models.AutoField(primary_key=True)
@@ -229,7 +190,9 @@ class FinancialForecast(models.Model):
         return str(self.forecast_month)
 
 
-# ---------------- AUDIT LOGS ----------------
+# ============================================================
+# AUDIT LOGS
+# ============================================================
 
 class AuditLog(models.Model):
     log_id = models.AutoField(primary_key=True)
@@ -249,3 +212,67 @@ class AuditLog(models.Model):
 
     def __str__(self):
         return str(self.log_id)
+
+
+# ============================================================
+# ALERTS
+# ============================================================
+
+class Alert(models.Model):
+    alert_id = models.AutoField(primary_key=True)
+
+    alert_type = models.CharField(max_length=100)
+    severity = models.CharField(max_length=50)
+    message = models.TextField()
+
+    is_resolved = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField()
+
+    transaction = models.ForeignKey(
+        Transaction,
+        on_delete=models.DO_NOTHING,
+        db_column="transaction_id"
+    )
+
+    class Meta:
+        db_table = "alerts"
+
+    def __str__(self):
+        return str(self.alert_id)
+
+
+# ============================================================
+# JOURNAL ENTRIES
+# ============================================================
+
+class JournalEntry(models.Model):
+    journal_entry_id = models.AutoField(primary_key=True)
+
+    entry_date = models.DateTimeField()
+    description = models.TextField()
+
+    debit = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0
+    )
+
+    credit = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        default=0
+    )
+
+    account = models.ForeignKey(
+        Account,
+        on_delete=models.DO_NOTHING,
+        db_column="account_id"
+    )
+
+    class Meta:
+        db_table = "journal_entries"
+
+    def __str__(self):
+        return str(self.journal_entry_id)
+

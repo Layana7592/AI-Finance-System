@@ -1,4 +1,3 @@
-
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -69,7 +68,10 @@ class FraudPredictionViewSet(viewsets.ModelViewSet):
 # ==================================================
 
 class FinancialForecastViewSet(viewsets.ModelViewSet):
-    queryset = FinancialForecast.objects.all()
+    queryset = FinancialForecast.objects.all().order_by(
+        "forecast_month"
+    )
+
     serializer_class = FinancialForecastSerializer
 
     @action(
@@ -78,18 +80,25 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
         url_path="generate"
     )
     def generate(self, request):
+
         try:
-            results = generate_forecast()
+            results = generate_forecast(12)
+
+            serializer = FinancialForecastSerializer(
+                results,
+                many=True
+            )
 
             return Response(
                 {
                     "message": "Forecast generated successfully",
-                    "forecasts": results,
+                    "forecasts": serializer.data,
                 },
                 status=status.HTTP_200_OK,
             )
 
         except Exception as e:
+
             return Response(
                 {
                     "error": str(e),
@@ -123,4 +132,3 @@ class AlertViewSet(viewsets.ModelViewSet):
 class JournalEntryViewSet(viewsets.ModelViewSet):
     queryset = JournalEntry.objects.all()
     serializer_class = JournalEntrySerializer
-
