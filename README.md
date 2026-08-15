@@ -60,26 +60,47 @@ The system uses synthetic financial data generated using Django management comma
 - Multiple branches
 - Branch-wise users, accounts, and transactions
 
+
 ## Project Structure
 
+```text
 AI-Finance-System/
 │
 ├── django_backend/
 │   ├── banking_system/
+│   │   ├── __init__.py
+│   │   ├── settings.py
+│   │   ├── urls.py
+│   │   ├── asgi.py
+│   │   └── wsgi.py
+│   │
 │   ├── finance/
 │   │   ├── migrations/
 │   │   ├── management/
+│   │   │   └── commands/
+│   │   │       ├── generate_users.py
+│   │   │       ├── generate_accounts.py
+│   │   │       └── generate_transactions.py
+│   │   │
 │   │   ├── services/
+│   │   │   ├── forecast_service.py
+│   │   │   └── fraud_service.py
+│   │   │
 │   │   ├── models.py
 │   │   ├── serializers.py
 │   │   ├── views.py
-│   │   └── urls.py
+│   │   ├── urls.py
+│   │   └── admin.py
+│   │
 │   ├── manage.py
 │   ├── requirements.txt
 │   └── .env.example
 │
 ├── frontend/
+│
+├── .gitignore
 └── README.md
+```
 
 
 ## Setup
