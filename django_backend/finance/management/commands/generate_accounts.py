@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from django.db import IntegrityError
+from django.utils import timezone
 from faker import Faker
 from decimal import Decimal
 import random
@@ -22,6 +22,14 @@ class Command(BaseCommand):
         fake = Faker()
         count = options["count"]
 
+        if count <= 0:
+            self.stdout.write(
+                self.style.ERROR(
+                    "Account count must be greater than 0."
+                )
+            )
+            return
+
         users = list(User.objects.all())
 
         if not users:
@@ -38,31 +46,37 @@ class Command(BaseCommand):
             "Salary",
         ]
 
-        generated = 0
+        accounts = []
 
         for _ in range(count):
             user = random.choice(users)
 
-            account = Account(
-                user=user,
-                account_number=fake.unique.numerify(
-                    text="################"
-                ),
-                account_type=random.choice(account_types),
-                balance=Decimal(
-                    str(round(random.uniform(1000, 500000), 2))
-                ),
+            accounts.append(
+                Account(
+                    user=user,
+                    account_number=fake.unique.numerify(
+                        text="################"
+                    ),
+                    account_type=random.choice(account_types),
+                    balance=Decimal(
+                        str(round(random.uniform(1000, 500000), 2))
+                    ),
+                    created_at=timezone.now(),
+                )
             )
 
-            try:
-                account.save()
-                generated += 1
-
-            except IntegrityError:
-                continue
+        Account.objects.bulk_create(accounts)
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"{generated} accounts generated successfully!"
+                f"{count} accounts generated successfully!"
             )
+        )
+
+        self.stdout.write(
+            f"Total users: {User.objects.count()}"
+        )
+
+        self.stdout.write(
+            f"Total accounts: {Account.objects.count()}"
         )

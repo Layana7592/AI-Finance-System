@@ -1,4 +1,5 @@
 from decimal import Decimal
+from django.utils import timezone
 
 import pandas as pd
 from django.db.models import Sum
@@ -199,6 +200,7 @@ def generate_forecast(periods=12):
             forecast_month=forecast_month,
             predicted_income=predicted_income,
             predicted_expense=predicted_expense,
+            generated_at=timezone.now()
         )
 
         forecasts.append(
