@@ -1,4 +1,3 @@
-
 """
 Django settings for banking_system project.
 
@@ -21,7 +20,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # ENVIRONMENT VARIABLES
 # ============================================================
 
-# Load .env from the project root
 load_dotenv(BASE_DIR / ".env")
 
 
@@ -36,7 +34,11 @@ SECRET_KEY = os.getenv(
 
 DEBUG = os.getenv("DEBUG", "True").lower() == "true"
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "testserver",
+]
 
 
 # ============================================================
@@ -51,7 +53,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 # ============================================================
 
 INSTALLED_APPS = [
-    # Django applications
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -59,12 +60,13 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
-    # Django REST Framework
-    "rest_framework",
+    "corsheaders",
 
-    # Finance application
+    "rest_framework",
     "finance",
 ]
+
+AUTH_USER_MODEL = "finance.User"
 
 
 # ============================================================
@@ -74,13 +76,15 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+
+    "corsheaders.middleware.CorsMiddleware",
+
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
-
 
 # ============================================================
 # URL CONFIGURATION
@@ -203,8 +207,25 @@ EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 # ============================================================
 
 REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+        "rest_framework.authentication.BasicAuthentication",
+    ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",
+        "rest_framework.permissions.IsAuthenticated",
     ],
 }
 
+
+# ============================================================
+# CORS - React Frontend
+# ============================================================
+
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+]
+
+CORS_ALLOW_CREDENTIALS = True

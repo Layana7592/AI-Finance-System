@@ -10,21 +10,22 @@ class Migration(migrations.Migration):
 
     operations = [
 
-        # is_anomaly already exists in PostgreSQL.
-        # This updates Django's migration state without
-        # attempting to create the column again.
-        migrations.SeparateDatabaseAndState(
-            database_operations=[],
-            state_operations=[
-                migrations.AddField(
-                    model_name="transaction",
-                    name="is_anomaly",
-                    field=models.BooleanField(default=False),
-                ),
-            ],
+        # ============================================================
+        # TRANSACTION - IS ANOMALY
+        # ============================================================
+
+        # 0 = normal transaction
+        # 1 = anomalous transaction
+        migrations.AddField(
+            model_name="transaction",
+            name="is_anomaly",
+            field=models.SmallIntegerField(default=0),
         ),
 
-        # Create Alerts table
+        # ============================================================
+        # ALERTS
+        # ============================================================
+
         migrations.CreateModel(
             name="Alert",
             fields=[
@@ -37,11 +38,15 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "alert_type",
-                    models.CharField(max_length=100),
+                    models.CharField(
+                        max_length=100,
+                    ),
                 ),
                 (
                     "severity",
-                    models.CharField(max_length=50),
+                    models.CharField(
+                        max_length=50,
+                    ),
                 ),
                 (
                     "message",
@@ -49,7 +54,9 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "is_resolved",
-                    models.BooleanField(default=False),
+                    models.BooleanField(
+                        default=False,
+                    ),
                 ),
                 (
                     "created_at",
@@ -69,7 +76,10 @@ class Migration(migrations.Migration):
             },
         ),
 
-        # Create Journal Entries table
+        # ============================================================
+        # JOURNAL ENTRIES
+        # ============================================================
+
         migrations.CreateModel(
             name="JournalEntry",
             fields=[
