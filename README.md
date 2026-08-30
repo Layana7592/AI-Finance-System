@@ -185,7 +185,11 @@ AI-Finance-System/
 ├── .gitignore
 └── README.md
 
+
+---
+
 ## Current Implementation Summary
+
 
 
 | Component                | Status         |
