@@ -197,3 +197,36 @@ class DashboardView(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+# ==================================================
+# GEMINI MANAGEMENT REPORT API
+# ==================================================
+
+from rest_framework.views import APIView
+from .services.gemini_service import generate_gemini_report
+
+
+class GeminiReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            result = generate_gemini_report()
+
+            return Response(
+                {
+                    "status": "success",
+                    "report": result["report"],
+                    "verified_results": result["verified_results"],
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except Exception as e:
+            return Response(
+                {
+                    "status": "error",
+                    "error": str(e),
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

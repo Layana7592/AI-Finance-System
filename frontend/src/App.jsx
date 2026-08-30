@@ -1,17 +1,16 @@
 import { useEffect, useState } from "react";
 import {
-  ResponsiveContainer,
   LineChart,
   Line,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   Legend,
-  BarChart,
-  Bar,
+  ResponsiveContainer,
 } from "recharts";
-
 import "./App.css";
 
 function App() {
@@ -59,12 +58,20 @@ function App() {
       <div className="app">
         <div className="error">
           <h2>Unable to load dashboard</h2>
+
           <p>{error}</p>
 
           <p>
-            Make sure your Django backend is running on{" "}
-            <strong>http://127.0.0.1:8000</strong>
+            Make sure your Django backend is running on
+            <strong> http://127.0.0.1:8000</strong>
           </p>
+
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </button>
         </div>
       </div>
     );
@@ -75,79 +82,63 @@ function App() {
   const forecast = dashboard.forecast_evaluation;
 
   /*
-   * ========================================================
-   * HISTORICAL DATA
-   * ========================================================
+   * Historical monthly data
    */
-
-  const monthlyTrends = dashboard.monthly_trends || [];
+  const monthlyData = dashboard.monthly_trends.map((item) => ({
+    month: item.month,
+    income: item.income,
+    expense: item.expense,
+  }));
 
   /*
-   * ========================================================
-   * 2026 FORECAST DATA
-   * ========================================================
+   * 2026 forecast data
    */
-
-  const forecasts = dashboard.forecasts || [];
+  const forecastData = dashboard.forecasts.map((item) => ({
+    month: item.month,
+    income: item.predicted_income,
+    expense: item.predicted_expense,
+  }));
 
   /*
-   * ========================================================
-   * FORMAT CURRENCY
-   * ========================================================
+   * Fraud model comparison
    */
-
-  const formatCurrency = (value) => {
-    return `₹${Number(value).toLocaleString("en-IN", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-  };
-
-  /*
-   * ========================================================
-   * FORMAT CHART VALUES
-   * ========================================================
-   */
-
-  const formatMillions = (value) => {
-    return `₹${(value / 1000000).toFixed(0)}M`;
-  };
-
-  /*
-   * ========================================================
-   * FRAUD MODEL COMPARISON DATA
-   * ========================================================
-   */
-
   const fraudComparison = [
     {
       metric: "Precision",
-      Statistical: fraud.statistical_baseline.precision * 100,
-      "Isolation Forest": fraud.isolation_forest.precision * 100,
+      statistical:
+        fraud.statistical_baseline.precision * 100,
+      isolation:
+        fraud.isolation_forest.precision * 100,
     },
     {
       metric: "Recall",
-      Statistical: fraud.statistical_baseline.recall * 100,
-      "Isolation Forest": fraud.isolation_forest.recall * 100,
+      statistical:
+        fraud.statistical_baseline.recall * 100,
+      isolation:
+        fraud.isolation_forest.recall * 100,
     },
     {
       metric: "F1 Score",
-      Statistical: fraud.statistical_baseline.f1_score * 100,
-      "Isolation Forest": fraud.isolation_forest.f1_score * 100,
+      statistical:
+        fraud.statistical_baseline.f1_score * 100,
+      isolation:
+        fraud.isolation_forest.f1_score * 100,
     },
   ];
 
   return (
     <div className="app">
-      {/* ==================================================
-          HEADER
-          ================================================== */}
+      {/* ================================================== */}
+      {/* HEADER */}
+      {/* ================================================== */}
 
       <header className="header">
         <div>
           <h1>AI Finance System</h1>
 
-          <p>Banking Analytics & Intelligent Financial Monitoring</p>
+          <p>
+            Banking Analytics & Intelligent Financial Monitoring
+          </p>
         </div>
 
         <div className="status">
@@ -157,16 +148,18 @@ function App() {
       </header>
 
       <main className="dashboard">
-        {/* ==================================================
-            SUMMARY CARDS
-            ================================================== */}
+
+        {/* ================================================== */}
+        {/* SUMMARY CARDS */}
+        {/* ================================================== */}
 
         <section className="cards">
+
           <div className="card">
             <h3>Total Transactions</h3>
 
             <div className="value">
-              {summary.total_transactions.toLocaleString("en-IN")}
+              {summary.total_transactions.toLocaleString()}
             </div>
 
             <p>Processed transactions</p>
@@ -176,17 +169,22 @@ function App() {
             <h3>Actual Anomalies</h3>
 
             <div className="value danger">
-              {summary.actual_anomalies.toLocaleString("en-IN")}
+              {summary.actual_anomalies.toLocaleString()}
             </div>
 
-            <p>{summary.anomaly_percentage}% of transactions</p>
+            <p>
+              {summary.anomaly_percentage}% of transactions
+            </p>
           </div>
 
           <div className="card">
             <h3>Total Income</h3>
 
             <div className="value">
-              {formatCurrency(summary.total_income)}
+              ₹{summary.total_income.toLocaleString("en-IN", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </div>
 
             <p>2024–2025 dataset</p>
@@ -196,83 +194,84 @@ function App() {
             <h3>Total Expense</h3>
 
             <div className="value">
-              {formatCurrency(summary.total_expense)}
+              ₹{summary.total_expense.toLocaleString("en-IN", {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
             </div>
 
             <p>2024–2025 dataset</p>
           </div>
+
         </section>
 
-        {/* ==================================================
-            HISTORICAL CHART
-            ================================================== */}
+        {/* ================================================== */}
+        {/* HISTORICAL MONTHLY TREND */}
+        {/* ================================================== */}
 
-        <section className="panel chart-container">
+        <section className="panel">
           <h2>Monthly Income vs Expense</h2>
 
           <p className="chart-description">
-            Historical financial activity from January 2024 to December 2025
+            Historical financial activity from January 2024
+            to December 2025
           </p>
 
           <div className="chart-wrapper">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={monthlyTrends}
-                margin={{
-                  top: 20,
-                  right: 30,
-                  left: 20,
-                  bottom: 10,
-                }}
-              >
+              <LineChart data={monthlyData}>
                 <CartesianGrid strokeDasharray="3 3" />
 
                 <XAxis
                   dataKey="month"
-                  tick={{ fontSize: 11 }}
                   interval={1}
+                  angle={-35}
+                  textAnchor="end"
+                  height={70}
                 />
 
                 <YAxis
-                  tickFormatter={formatMillions}
-                  tick={{ fontSize: 11 }}
+                  tickFormatter={(value) =>
+                    `₹${(value / 1000000).toFixed(0)}M`
+                  }
                 />
 
                 <Tooltip
-                  formatter={(value) => formatCurrency(value)}
+                  formatter={(value) =>
+                    `₹${Number(value).toLocaleString("en-IN", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}`
+                  }
                 />
 
                 <Legend />
 
                 <Line
                   type="monotone"
-                  dataKey="income"
-                  name="Income"
-                  stroke="#16a34a"
+                  dataKey="expense"
+                  name="Expense"
                   strokeWidth={3}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 6 }}
+                  dot={false}
                 />
 
                 <Line
                   type="monotone"
-                  dataKey="expense"
-                  name="Expense"
-                  stroke="#dc2626"
+                  dataKey="income"
+                  name="Income"
                   strokeWidth={3}
-                  dot={{ r: 3 }}
-                  activeDot={{ r: 6 }}
+                  dot={false}
                 />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </section>
 
-        {/* ==================================================
-            2026 FORECAST CHART
-            ================================================== */}
+        {/* ================================================== */}
+        {/* 2026 FORECAST */}
+        {/* ================================================== */}
 
-        <section className="panel chart-container">
+        <section className="panel">
           <h2>2026 Financial Forecast</h2>
 
           <p className="chart-description">
@@ -281,65 +280,57 @@ function App() {
 
           <div className="chart-wrapper">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={forecasts}
-                margin={{
-                  top: 20,
-                  right: 30,
-                  left: 20,
-                  bottom: 10,
-                }}
-              >
+              <LineChart data={forecastData}>
                 <CartesianGrid strokeDasharray="3 3" />
 
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 11 }}
-                />
+                <XAxis dataKey="month" />
 
                 <YAxis
-                  tickFormatter={formatMillions}
-                  tick={{ fontSize: 11 }}
+                  tickFormatter={(value) =>
+                    `₹${(value / 1000000).toFixed(0)}M`
+                  }
                 />
 
                 <Tooltip
-                  formatter={(value) => formatCurrency(value)}
+                  formatter={(value) =>
+                    `₹${Number(value).toLocaleString("en-IN", {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}`
+                  }
                 />
 
                 <Legend />
 
                 <Line
                   type="monotone"
-                  dataKey="predicted_income"
-                  name="Predicted Income"
-                  stroke="#2563eb"
+                  dataKey="expense"
+                  name="Predicted Expense"
                   strokeWidth={3}
-                  dot={{ r: 4 }}
-                  activeDot={{ r: 7 }}
                 />
 
                 <Line
                   type="monotone"
-                  dataKey="predicted_expense"
-                  name="Predicted Expense"
-                  stroke="#f97316"
+                  dataKey="income"
+                  name="Predicted Income"
                   strokeWidth={3}
-                  dot={{ r: 4 }}
-                  activeDot={{ r: 7 }}
                 />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </section>
 
-        {/* ==================================================
-            FRAUD DETECTION
-            ================================================== */}
+        {/* ================================================== */}
+        {/* FRAUD DETECTION PERFORMANCE */}
+        {/* ================================================== */}
 
         <section className="panel">
           <h2>Fraud Detection Performance</h2>
 
           <div className="model-grid">
+
+            {/* Statistical Baseline */}
+
             <div className="model">
               <h3>Statistical Baseline</h3>
 
@@ -347,7 +338,10 @@ function App() {
                 <span>Precision</span>
 
                 <strong>
-                  {(fraud.statistical_baseline.precision * 100).toFixed(2)}%
+                  {(
+                    fraud.statistical_baseline.precision * 100
+                  ).toFixed(2)}
+                  %
                 </strong>
               </div>
 
@@ -355,7 +349,10 @@ function App() {
                 <span>Recall</span>
 
                 <strong>
-                  {(fraud.statistical_baseline.recall * 100).toFixed(2)}%
+                  {(
+                    fraud.statistical_baseline.recall * 100
+                  ).toFixed(2)}
+                  %
                 </strong>
               </div>
 
@@ -363,10 +360,15 @@ function App() {
                 <span>F1 Score</span>
 
                 <strong>
-                  {(fraud.statistical_baseline.f1_score * 100).toFixed(2)}%
+                  {(
+                    fraud.statistical_baseline.f1_score * 100
+                  ).toFixed(2)}
+                  %
                 </strong>
               </div>
             </div>
+
+            {/* Isolation Forest */}
 
             <div className="model highlight">
               <h3>Isolation Forest</h3>
@@ -375,7 +377,10 @@ function App() {
                 <span>Precision</span>
 
                 <strong>
-                  {(fraud.isolation_forest.precision * 100).toFixed(2)}%
+                  {(
+                    fraud.isolation_forest.precision * 100
+                  ).toFixed(2)}
+                  %
                 </strong>
               </div>
 
@@ -383,7 +388,10 @@ function App() {
                 <span>Recall</span>
 
                 <strong>
-                  {(fraud.isolation_forest.recall * 100).toFixed(2)}%
+                  {(
+                    fraud.isolation_forest.recall * 100
+                  ).toFixed(2)}
+                  %
                 </strong>
               </div>
 
@@ -391,18 +399,140 @@ function App() {
                 <span>F1 Score</span>
 
                 <strong>
-                  {(fraud.isolation_forest.f1_score * 100).toFixed(2)}%
+                  {(
+                    fraud.isolation_forest.f1_score * 100
+                  ).toFixed(2)}
+                  %
                 </strong>
               </div>
+            </div>
+
+          </div>
+
+          {/* ================================================== */}
+          {/* CONFUSION MATRICES */}
+          {/* ================================================== */}
+
+          <div className="confusion-section">
+
+            <h3>Confusion Matrix</h3>
+
+            <div className="confusion-grid">
+
+              {/* Statistical Baseline */}
+
+              <div className="confusion-card">
+
+                <h4>Statistical Baseline</h4>
+
+                <table className="confusion-table">
+
+                  <thead>
+                    <tr>
+                      <th></th>
+                      <th>Predicted Normal</th>
+                      <th>Predicted Anomaly</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+
+                    <tr>
+                      <th>Actual Normal</th>
+
+                      <td className="true-negative">
+                        49,500
+                        <span>TN</span>
+                      </td>
+
+                      <td className="false-positive">
+                        0
+                        <span>FP</span>
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <th>Actual Anomaly</th>
+
+                      <td className="false-negative">
+                        106
+                        <span>FN</span>
+                      </td>
+
+                      <td className="true-positive">
+                        394
+                        <span>TP</span>
+                      </td>
+                    </tr>
+
+                  </tbody>
+
+                </table>
+
+              </div>
+
+              {/* Isolation Forest */}
+
+              <div className="confusion-card">
+
+                <h4>Isolation Forest</h4>
+
+                <table className="confusion-table">
+
+                  <thead>
+                    <tr>
+                      <th></th>
+                      <th>Predicted Normal</th>
+                      <th>Predicted Anomaly</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+
+                    <tr>
+                      <th>Actual Normal</th>
+
+                      <td className="true-negative">
+                        49,456
+                        <span>TN</span>
+                      </td>
+
+                      <td className="false-positive">
+                        44
+                        <span>FP</span>
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <th>Actual Anomaly</th>
+
+                      <td className="false-negative">
+                        58
+                        <span>FN</span>
+                      </td>
+
+                      <td className="true-positive">
+                        442
+                        <span>TP</span>
+                      </td>
+                    </tr>
+
+                  </tbody>
+
+                </table>
+
+              </div>
+
             </div>
           </div>
         </section>
 
-        {/* ==================================================
-            FRAUD MODEL CHART
-            ================================================== */}
+        {/* ================================================== */}
+        {/* FRAUD MODEL COMPARISON */}
+        {/* ================================================== */}
 
-        <section className="panel chart-container">
+        <section className="panel">
+
           <h2>Fraud Model Comparison</h2>
 
           <p className="chart-description">
@@ -410,16 +540,11 @@ function App() {
           </p>
 
           <div className="chart-wrapper">
+
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={fraudComparison}
-                margin={{
-                  top: 20,
-                  right: 30,
-                  left: 20,
-                  bottom: 10,
-                }}
-              >
+
+              <BarChart data={fraudComparison}>
+
                 <CartesianGrid strokeDasharray="3 3" />
 
                 <XAxis dataKey="metric" />
@@ -430,140 +555,193 @@ function App() {
                 />
 
                 <Tooltip
-                  formatter={(value) => `${Number(value).toFixed(2)}%`}
+                  formatter={(value) =>
+                    `${Number(value).toFixed(2)}%`
+                  }
                 />
 
                 <Legend />
 
                 <Bar
-                  dataKey="Statistical"
-                  name="Statistical Baseline"
-                  fill="#64748b"
-                  radius={[6, 6, 0, 0]}
+                  dataKey="isolation"
+                  name="Isolation Forest"
                 />
 
                 <Bar
-                  dataKey="Isolation Forest"
-                  name="Isolation Forest"
-                  fill="#2563eb"
-                  radius={[6, 6, 0, 0]}
+                  dataKey="statistical"
+                  name="Statistical Baseline"
                 />
+
               </BarChart>
+
             </ResponsiveContainer>
+
           </div>
+
         </section>
 
-        {/* ==================================================
-            FORECAST EVALUATION
-            ================================================== */}
+        {/* ================================================== */}
+        {/* FORECAST EVALUATION */}
+        {/* ================================================== */}
 
         <section className="panel">
+
           <h2>Forecast Evaluation</h2>
 
           <div className="forecast-grid">
+
+            {/* Income */}
+
             <div className="forecast-box">
+
               <h3>Income Forecast</h3>
 
               <p>
-                <span>Best Model</span>
-
-                <strong>{forecast.income.best_model}</strong>
-              </p>
-
-              <p>
-                <span>MAE</span>
-
+                Best Model:
                 <strong>
-                  {formatCurrency(forecast.income.seasonal_naive.mae)}
+                  {" "}
+                  {forecast.income.best_model}
                 </strong>
               </p>
 
               <p>
-                <span>RMSE</span>
-
+                MAE:
                 <strong>
-                  {formatCurrency(forecast.income.seasonal_naive.rmse)}
+                  {" "}
+                  ₹
+                  {forecast.income.seasonal_naive.mae.toLocaleString(
+                    "en-IN",
+                    {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    }
+                  )}
                 </strong>
               </p>
 
               <p>
-                <span>MAPE</span>
-
+                RMSE:
                 <strong>
+                  {" "}
+                  ₹
+                  {forecast.income.seasonal_naive.rmse.toLocaleString(
+                    "en-IN",
+                    {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    }
+                  )}
+                </strong>
+              </p>
+
+              <p>
+                MAPE:
+                <strong>
+                  {" "}
                   {forecast.income.seasonal_naive.mape}%
                 </strong>
               </p>
+
             </div>
 
+            {/* Expense */}
+
             <div className="forecast-box">
+
               <h3>Expense Forecast</h3>
 
               <p>
-                <span>Best Model</span>
-
-                <strong>{forecast.expense.best_model}</strong>
-              </p>
-
-              <p>
-                <span>MAE</span>
-
+                Best Model:
                 <strong>
-                  {formatCurrency(forecast.expense.seasonal_naive.mae)}
+                  {" "}
+                  {forecast.expense.best_model}
                 </strong>
               </p>
 
               <p>
-                <span>RMSE</span>
-
+                MAE:
                 <strong>
-                  {formatCurrency(forecast.expense.seasonal_naive.rmse)}
+                  {" "}
+                  ₹
+                  {forecast.expense.seasonal_naive.mae.toLocaleString(
+                    "en-IN",
+                    {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    }
+                  )}
                 </strong>
               </p>
 
               <p>
-                <span>MAPE</span>
-
+                RMSE:
                 <strong>
+                  {" "}
+                  ₹
+                  {forecast.expense.seasonal_naive.rmse.toLocaleString(
+                    "en-IN",
+                    {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    }
+                  )}
+                </strong>
+              </p>
+
+              <p>
+                MAPE:
+                <strong>
+                  {" "}
                   {forecast.expense.seasonal_naive.mape}%
                 </strong>
               </p>
+
             </div>
+
           </div>
+
         </section>
 
-        {/* ==================================================
-            SYSTEM INFORMATION
-            ================================================== */}
+        {/* ================================================== */}
+        {/* SYSTEM INFORMATION */}
+        {/* ================================================== */}
 
         <section className="panel">
+
           <h2>System Information</h2>
 
           <div className="info-grid">
+
             <div>
               <span>Historical Months</span>
-
-              <strong>{forecast.dataset.months}</strong>
+              <strong>
+                {forecast.dataset.months}
+              </strong>
             </div>
 
             <div>
               <span>Training Months</span>
-
-              <strong>{forecast.dataset.training_months}</strong>
+              <strong>
+                {forecast.dataset.training_months}
+              </strong>
             </div>
 
             <div>
               <span>Validation Months</span>
-
-              <strong>{forecast.dataset.validation_months}</strong>
+              <strong>
+                {forecast.dataset.validation_months}
+              </strong>
             </div>
 
             <div>
               <span>Forecast Horizon</span>
-
               <strong>12 Months</strong>
             </div>
+
           </div>
+
         </section>
+
       </main>
     </div>
   );

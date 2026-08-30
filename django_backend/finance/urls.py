@@ -11,8 +11,8 @@ from .views import (
     AlertViewSet,
     JournalEntryViewSet,
     DashboardView,
+    GeminiReportView,
 )
-
 router = DefaultRouter()
 
 router.register("users", UserViewSet)
@@ -32,5 +32,12 @@ urlpatterns = [
         "dashboard/",
         DashboardView.as_view(),
         name="dashboard",
+    ),
+
+    # Gemini Management Report
+    path(
+        "report/",
+        GeminiReportView.as_view(),
+        name="gemini-report",
     ),
 ]
