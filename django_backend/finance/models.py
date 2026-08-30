@@ -1,5 +1,5 @@
-
 from django.db import models
+from django.contrib.auth.models import AbstractUser
 
 
 # ============================================================
@@ -40,11 +40,11 @@ class Branch(models.Model):
 # USERS
 # ============================================================
 
-class User(models.Model):
+class User(AbstractUser):
+
     user_id = models.AutoField(primary_key=True)
-    username = models.CharField(max_length=150)
-    email = models.EmailField()
-    password_hash = models.TextField()
+
+    email = models.EmailField(unique=True)
 
     role = models.ForeignKey(
         Role,
@@ -58,15 +58,13 @@ class User(models.Model):
         db_column="branch_id"
     )
 
-    created_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "users"
 
     def __str__(self):
         return self.username
-
-
 # ============================================================
 # ACCOUNTS
 # ============================================================
@@ -80,8 +78,13 @@ class Account(models.Model):
         db_column="user_id"
     )
 
-    account_number = models.CharField(max_length=50)
-    account_type = models.CharField(max_length=50)
+    account_number = models.CharField(
+        max_length=50
+    )
+
+    account_type = models.CharField(
+        max_length=50
+    )
 
     balance = models.DecimalField(
         max_digits=15,
@@ -102,7 +105,9 @@ class Account(models.Model):
 # ============================================================
 
 class Transaction(models.Model):
-    transaction_id = models.AutoField(primary_key=True)
+    transaction_id = models.AutoField(
+        primary_key=True
+    )
 
     account = models.ForeignKey(
         Account,
@@ -115,16 +120,29 @@ class Transaction(models.Model):
         decimal_places=2
     )
 
-    transaction_type = models.CharField(max_length=50)
-    merchant = models.CharField(max_length=255)
-    location = models.CharField(max_length=255)
-    transaction_time = models.DateTimeField()
-    status = models.CharField(max_length=50)
+    transaction_type = models.CharField(
+        max_length=50
+    )
 
-    # PostgreSQL column is SMALLINT.
+    merchant = models.CharField(
+        max_length=255
+    )
+
+    location = models.CharField(
+        max_length=255
+    )
+
+    transaction_time = models.DateTimeField()
+
+    status = models.CharField(
+        max_length=50
+    )
+
     # 0 = normal
     # 1 = anomaly
-    is_anomaly = models.SmallIntegerField(default=0)
+    is_anomaly = models.SmallIntegerField(
+        default=0
+    )
 
     class Meta:
         db_table = "transactions"
@@ -138,7 +156,9 @@ class Transaction(models.Model):
 # ============================================================
 
 class FraudPrediction(models.Model):
-    prediction_id = models.AutoField(primary_key=True)
+    prediction_id = models.AutoField(
+        primary_key=True
+    )
 
     transaction = models.ForeignKey(
         Transaction,
@@ -152,7 +172,11 @@ class FraudPrediction(models.Model):
     )
 
     prediction = models.BooleanField()
-    model_version = models.CharField(max_length=100)
+
+    model_version = models.CharField(
+        max_length=100
+    )
+
     predicted_at = models.DateTimeField()
 
     class Meta:
@@ -167,7 +191,9 @@ class FraudPrediction(models.Model):
 # ============================================================
 
 class FinancialForecast(models.Model):
-    forecast_id = models.AutoField(primary_key=True)
+    forecast_id = models.AutoField(
+        primary_key=True
+    )
 
     forecast_month = models.DateField()
 
@@ -188,12 +214,16 @@ class FinancialForecast(models.Model):
 
     def __str__(self):
         return str(self.forecast_month)
-    
 
-# ---------------- REPORTS ----------------
+
+# ============================================================
+# REPORTS
+# ============================================================
 
 class Report(models.Model):
-    report_id = models.AutoField(primary_key=True)
+    report_id = models.AutoField(
+        primary_key=True
+    )
 
     user = models.ForeignKey(
         User,
@@ -202,15 +232,27 @@ class Report(models.Model):
         related_name="reports"
     )
 
-    report_type = models.CharField(max_length=100)
+    report_type = models.CharField(
+        max_length=100
+    )
 
-    title = models.CharField(max_length=255)
+    title = models.CharField(
+        max_length=255
+    )
 
-    description = models.TextField(blank=True, null=True)
+    description = models.TextField(
+        blank=True,
+        null=True
+    )
 
-    file_path = models.TextField(blank=True, null=True)
+    file_path = models.TextField(
+        blank=True,
+        null=True
+    )
 
-    generated_at = models.DateTimeField(auto_now_add=True)
+    generated_at = models.DateTimeField(
+        auto_now_add=True
+    )
 
     status = models.CharField(
         max_length=50,
@@ -229,7 +271,9 @@ class Report(models.Model):
 # ============================================================
 
 class AuditLog(models.Model):
-    log_id = models.AutoField(primary_key=True)
+    log_id = models.AutoField(
+        primary_key=True
+    )
 
     user = models.ForeignKey(
         User,
@@ -238,7 +282,11 @@ class AuditLog(models.Model):
     )
 
     action = models.TextField()
-    ip_address = models.CharField(max_length=45)
+
+    ip_address = models.CharField(
+        max_length=45
+    )
+
     log_time = models.DateTimeField()
 
     class Meta:
@@ -253,13 +301,23 @@ class AuditLog(models.Model):
 # ============================================================
 
 class Alert(models.Model):
-    alert_id = models.AutoField(primary_key=True)
+    alert_id = models.AutoField(
+        primary_key=True
+    )
 
-    alert_type = models.CharField(max_length=100)
-    severity = models.CharField(max_length=50)
+    alert_type = models.CharField(
+        max_length=100
+    )
+
+    severity = models.CharField(
+        max_length=50
+    )
+
     message = models.TextField()
 
-    is_resolved = models.BooleanField(default=False)
+    is_resolved = models.BooleanField(
+        default=False
+    )
 
     created_at = models.DateTimeField()
 
@@ -281,9 +339,12 @@ class Alert(models.Model):
 # ============================================================
 
 class JournalEntry(models.Model):
-    journal_entry_id = models.AutoField(primary_key=True)
+    journal_entry_id = models.AutoField(
+        primary_key=True
+    )
 
     entry_date = models.DateTimeField()
+
     description = models.TextField()
 
     debit = models.DecimalField(
@@ -309,4 +370,3 @@ class JournalEntry(models.Model):
 
     def __str__(self):
         return str(self.journal_entry_id)
-

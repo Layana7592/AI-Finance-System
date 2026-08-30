@@ -1,4 +1,3 @@
-
 from rest_framework import serializers
 
 from .models import (
@@ -40,9 +39,64 @@ class BranchSerializer(serializers.ModelSerializer):
 # ==================================================
 
 class UserSerializer(serializers.ModelSerializer):
+    """
+    Serializer for displaying user information.
+
+    Password and password hash are NEVER exposed.
+    """
+
     class Meta:
         model = User
-        fields = "__all__"
+        fields = [
+            "user_id",
+            "username",
+            "email",
+            "created_at",
+            "role",
+            "branch",
+        ]
+        read_only_fields = [
+            "user_id",
+            "created_at",
+        ]
+
+
+class UserCreateSerializer(serializers.ModelSerializer):
+    """
+    Serializer for creating users.
+
+    Accepts a plain password as write-only input
+    and stores it using Django's password hashing.
+    """
+
+    password = serializers.CharField(
+        write_only=True,
+        required=True,
+        min_length=8,
+    )
+
+    class Meta:
+        model = User
+        fields = [
+            "user_id",
+            "username",
+            "email",
+            "password",
+            "role",
+            "branch",
+        ]
+        read_only_fields = [
+            "user_id",
+        ]
+
+    def create(self, validated_data):
+        password = validated_data.pop("password")
+
+        user = User(**validated_data)
+        user.set_password(password)
+        user.save()
+
+        return user
 
 
 # ==================================================
@@ -113,4 +167,3 @@ class JournalEntrySerializer(serializers.ModelSerializer):
     class Meta:
         model = JournalEntry
         fields = "__all__"
-
