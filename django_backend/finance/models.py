@@ -8,7 +8,7 @@ from django.contrib.auth.models import AbstractUser
 
 class Role(models.Model):
     role_id = models.AutoField(primary_key=True)
-    role_name = models.CharField(max_length=100)
+    role_name = models.CharField(max_length=100, unique=True)
 
     class Meta:
         db_table = "roles"
@@ -23,10 +23,10 @@ class Role(models.Model):
 
 class Branch(models.Model):
     branch_id = models.AutoField(primary_key=True)
-    branch_name = models.CharField(max_length=100)
+    branch_name = models.CharField(max_length=100, unique=True)
     city = models.CharField(max_length=100)
     state = models.CharField(max_length=100)
-    ifsc_code = models.CharField(max_length=20)
+    ifsc_code = models.CharField(max_length=20, unique=True)
     phone = models.CharField(max_length=20)
 
     class Meta:

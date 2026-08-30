@@ -1,3 +1,4 @@
+<<<<<<< ours
 from decimal import Decimal
 
 from django.core.management import call_command
@@ -5,6 +6,13 @@ from django.db import connection
 from django.test import TestCase
 from django.utils import timezone
 
+=======
+
+from django.utils import timezone
+from decimal import Decimal
+
+from django.test import TestCase
+>>>>>>> theirs
 from rest_framework.test import APIClient
 
 from .models import (
@@ -13,6 +21,7 @@ from .models import (
     User,
     Account,
     Transaction,
+<<<<<<< ours
     FinancialForecast,
 )
 
@@ -21,6 +30,11 @@ from .models import (
 # BASIC MODEL TESTS
 # ============================================================
 
+=======
+)
+
+
+>>>>>>> theirs
 class ModelSetupTests(TestCase):
     """Tests for the basic banking model relationships."""
 
@@ -37,27 +51,51 @@ class ModelSetupTests(TestCase):
             phone="9876543210",
         )
 
+<<<<<<< ours
         self.user = User.objects.create_user(
             username="testuser",
             email="test@example.com",
             password="test-password",
+=======
+        self.user = User.objects.create(
+            username="testuser",
+            email="test@example.com",
+            password_hash="test-password",
+            created_at=timezone.now(),
+>>>>>>> theirs
             role=self.role,
             branch=self.branch,
         )
 
     def test_role_created(self):
+<<<<<<< ours
+=======
+        """Role can be created successfully."""
+>>>>>>> theirs
         self.assertEqual(Role.objects.count(), 1)
         self.assertEqual(self.role.role_name, "Test Role")
 
     def test_branch_created(self):
+<<<<<<< ours
+=======
+        """Branch can be created successfully."""
+>>>>>>> theirs
         self.assertEqual(Branch.objects.count(), 1)
         self.assertEqual(self.branch.branch_name, "Test Branch")
 
     def test_user_linked_to_role_and_branch(self):
+<<<<<<< ours
+=======
+        """User is correctly linked to Role and Branch."""
+>>>>>>> theirs
         self.assertEqual(self.user.role, self.role)
         self.assertEqual(self.user.branch, self.branch)
 
     def test_account_linked_to_user(self):
+<<<<<<< ours
+=======
+        """Account is correctly linked to a user."""
+>>>>>>> theirs
         account = Account.objects.create(
             account_number="TESTACC001",
             account_type="Savings",
@@ -70,10 +108,13 @@ class ModelSetupTests(TestCase):
         self.assertEqual(account.account_number, "TESTACC001")
 
 
+<<<<<<< ours
 # ============================================================
 # TRANSACTION API TESTS
 # ============================================================
 
+=======
+>>>>>>> theirs
 class TransactionAPITests(TestCase):
     """Tests for the Transactions API."""
 
@@ -92,19 +133,30 @@ class TransactionAPITests(TestCase):
             phone="9876543211",
         )
 
+<<<<<<< ours
         self.user = User.objects.create_user(
             username="transactionuser",
             email="transaction@example.com",
             password="test-password",
+=======
+        self.user = User.objects.create(
+            username="transactionuser",
+            email="transaction@example.com",
+            password_hash="test-password",
+            created_at=timezone.now(),
+>>>>>>> theirs
             role=self.role,
             branch=self.branch,
         )
 
+<<<<<<< ours
         # Authenticate API test client
         self.client.force_authenticate(
             user=self.user
         )
 
+=======
+>>>>>>> theirs
         self.account = Account.objects.create(
             account_number="TESTACC002",
             account_type="Savings",
@@ -125,17 +177,23 @@ class TransactionAPITests(TestCase):
         )
 
     def test_transaction_exists(self):
+<<<<<<< ours
         self.assertEqual(
             Transaction.objects.count(),
             1
         )
 
+=======
+        """Transaction is created successfully."""
+        self.assertEqual(Transaction.objects.count(), 1)
+>>>>>>> theirs
         self.assertEqual(
             self.transaction.amount,
             Decimal("500.00")
         )
 
     def test_transaction_list_api(self):
+<<<<<<< ours
         response = self.client.get(
             "/api/transactions/"
         )
@@ -150,10 +208,21 @@ class TransactionAPITests(TestCase):
                 "results",
                 response.data
             )
+=======
+        """GET /api/transactions/ returns transactions."""
+        response = self.client.get("/api/transactions/")
+
+        self.assertEqual(response.status_code, 200)
+
+        # DRF may return either a list or paginated response.
+        if isinstance(response.data, dict):
+            self.assertIn("results", response.data)
+>>>>>>> theirs
             transactions = response.data["results"]
         else:
             transactions = response.data
 
+<<<<<<< ours
         self.assertGreaterEqual(
             len(transactions),
             1
@@ -163,6 +232,10 @@ class TransactionAPITests(TestCase):
 # ============================================================
 # USER API TESTS
 # ============================================================
+=======
+        self.assertGreaterEqual(len(transactions), 1)
+
+>>>>>>> theirs
 
 class UserAPITests(TestCase):
     """Tests for the Users API."""
@@ -182,14 +255,23 @@ class UserAPITests(TestCase):
             phone="9876543212",
         )
 
+<<<<<<< ours
         self.user = User.objects.create_user(
             username="apiuser",
             email="api@example.com",
             password="test-password",
+=======
+        self.user = User.objects.create(
+            username="apiuser",
+            email="api@example.com",
+            password_hash="test-password",
+            created_at=timezone.now(),
+>>>>>>> theirs
             role=self.role,
             branch=self.branch,
         )
 
+<<<<<<< ours
         # Authenticate API test client
         self.client.force_authenticate(
             user=self.user
@@ -210,10 +292,21 @@ class UserAPITests(TestCase):
                 "results",
                 response.data
             )
+=======
+    def test_user_list_api(self):
+        """GET /api/users/ returns users."""
+        response = self.client.get("/api/users/")
+
+        self.assertEqual(response.status_code, 200)
+
+        if isinstance(response.data, dict):
+            self.assertIn("results", response.data)
+>>>>>>> theirs
             users = response.data["results"]
         else:
             users = response.data
 
+<<<<<<< ours
         self.assertGreaterEqual(
             len(users),
             1
@@ -259,6 +352,10 @@ class UserAPITests(TestCase):
 # ============================================================
 # ACCOUNT API TESTS
 # ============================================================
+=======
+        self.assertGreaterEqual(len(users), 1)
+
+>>>>>>> theirs
 
 class AccountAPITests(TestCase):
     """Tests for the Accounts API."""
@@ -278,19 +375,30 @@ class AccountAPITests(TestCase):
             phone="9876543213",
         )
 
+<<<<<<< ours
         self.user = User.objects.create_user(
             username="accountuser",
             email="account@example.com",
             password="test-password",
+=======
+        self.user = User.objects.create(
+            username="accountuser",
+            email="account@example.com",
+            password_hash="test-password",
+            created_at=timezone.now(),
+>>>>>>> theirs
             role=self.role,
             branch=self.branch,
         )
 
+<<<<<<< ours
         # Authenticate API test client
         self.client.force_authenticate(
             user=self.user
         )
 
+=======
+>>>>>>> theirs
         self.account = Account.objects.create(
             account_number="TESTACC003",
             account_type="Current",
@@ -300,6 +408,7 @@ class AccountAPITests(TestCase):
         )
 
     def test_account_list_api(self):
+<<<<<<< ours
         response = self.client.get(
             "/api/accounts/"
         )
@@ -314,10 +423,20 @@ class AccountAPITests(TestCase):
                 "results",
                 response.data
             )
+=======
+        """GET /api/accounts/ returns accounts."""
+        response = self.client.get("/api/accounts/")
+
+        self.assertEqual(response.status_code, 200)
+
+        if isinstance(response.data, dict):
+            self.assertIn("results", response.data)
+>>>>>>> theirs
             accounts = response.data["results"]
         else:
             accounts = response.data
 
+<<<<<<< ours
         self.assertGreaterEqual(
             len(accounts),
             1
@@ -684,3 +803,7 @@ class ForecastGenerationTests(TestCase):
             .count(),
             12
         )
+=======
+        self.assertGreaterEqual(len(accounts), 1)
+
+>>>>>>> theirs

@@ -1,4 +1,5 @@
 from decimal import Decimal
+from django.utils import timezone
 
 import numpy as np
 import pandas as pd
@@ -785,6 +786,7 @@ def generate_forecast(
             )
         )
 
+<<<<<<< ours
         forecast = (
             FinancialForecast.objects.create(
                 forecast_month=forecast_month,
@@ -792,6 +794,13 @@ def generate_forecast(
                 predicted_expense=predicted_expense,
                 generated_at=timezone.now(),
             )
+=======
+        forecast = FinancialForecast.objects.create(
+            forecast_month=forecast_month,
+            predicted_income=predicted_income,
+            predicted_expense=predicted_expense,
+            generated_at=timezone.now()
+>>>>>>> theirs
         )
 
         forecasts.append(
