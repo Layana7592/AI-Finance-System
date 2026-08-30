@@ -147,7 +147,6 @@ The project uses **synthetic banking data** generated for development, testing, 
 
 ### Anomaly Rate
 
-```text
 500 anomalies / 50,000 transactions = 1.00%
 
 
