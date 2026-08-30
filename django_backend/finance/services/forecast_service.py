@@ -1,11 +1,11 @@
 from decimal import Decimal
+
 from django.utils import timezone
 
 import numpy as np
 import pandas as pd
 from django.db.models import Sum
 from django.db.models.functions import TruncMonth
-from django.utils import timezone
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 
 from finance.models import Transaction, FinancialForecast
@@ -30,9 +30,16 @@ def get_monthly_data():
 
     transactions = (
         Transaction.objects
-        .annotate(month=TruncMonth("transaction_time"))
-        .values("month", "transaction_type")
-        .annotate(total=Sum("amount"))
+        .annotate(
+            month=TruncMonth("transaction_time")
+        )
+        .values(
+            "month",
+            "transaction_type"
+        )
+        .annotate(
+            total=Sum("amount")
+        )
         .order_by("month")
     )
 
@@ -113,7 +120,8 @@ def seasonal_naive_forecast(
 
         value = float(
             series.iloc[
-                len(series) - seasonal_period
+                len(series)
+                - seasonal_period
                 + (i % seasonal_period)
             ]
         )
@@ -204,7 +212,6 @@ def sarima_forecast(
     except Exception:
 
         # Safe fallback if SARIMA fails.
-
         return seasonal_naive_forecast(
             series,
             periods=periods,
@@ -506,20 +513,23 @@ def evaluate_forecast_models():
     )
 
     return {
-
         "dataset": {
             "months": len(months),
             "training_months": 12,
             "validation_months": 12,
+
             "training_start": str(
                 months[0]
             ),
+
             "training_end": str(
                 months[11]
             ),
+
             "validation_start": str(
                 months[12]
             ),
+
             "validation_end": str(
                 months[23]
             ),
@@ -786,21 +796,15 @@ def generate_forecast(
             )
         )
 
-<<<<<<< ours
-        forecast = (
-            FinancialForecast.objects.create(
-                forecast_month=forecast_month,
-                predicted_income=predicted_income,
-                predicted_expense=predicted_expense,
-                generated_at=timezone.now(),
-            )
-=======
+        # ----------------------------------------------------
+        # CREATE FORECAST RECORD
+        # ----------------------------------------------------
+
         forecast = FinancialForecast.objects.create(
             forecast_month=forecast_month,
             predicted_income=predicted_income,
             predicted_expense=predicted_expense,
-            generated_at=timezone.now()
->>>>>>> theirs
+            generated_at=timezone.now(),
         )
 
         forecasts.append(
