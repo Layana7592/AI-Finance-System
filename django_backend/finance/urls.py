@@ -1,4 +1,4 @@
-from django.urls import path, include
+from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
@@ -13,6 +13,7 @@ from .views import (
     DashboardView,
     GeminiReportView,
 )
+
 router = DefaultRouter()
 
 router.register("users", UserViewSet)
@@ -27,14 +28,12 @@ router.register("journal-entries", JournalEntryViewSet)
 urlpatterns = [
     path("", include(router.urls)),
 
-    # Dashboard
     path(
         "dashboard/",
         DashboardView.as_view(),
         name="dashboard",
     ),
 
-    # Gemini Management Report
     path(
         "report/",
         GeminiReportView.as_view(),
