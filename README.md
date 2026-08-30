@@ -151,7 +151,7 @@ The project uses **synthetic banking data** generated for development, testing, 
 
 
 ## Project Structure
-
+```text
 
 AI-Finance-System/
 │
