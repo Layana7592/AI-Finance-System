@@ -1058,6 +1058,9 @@ function App() {
 
         const normalizedForecast =
           extractForecastData(payload);
+          
+        console.log("Dashboard API response:", payload);
+        console.log("Forecast data:", normalizedForecast);
 
         setDashboard(
           normalizedDashboard
