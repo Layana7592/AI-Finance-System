@@ -156,7 +156,9 @@ The project uses **synthetic banking data** generated for development, testing, 
 AI-Finance-System/
 │
 ├── django_backend/
+│   │
 │   ├── banking_system/
+│   │   ├── __init__.py
 │   │   ├── settings.py
 │   │   ├── urls.py
 │   │   ├── asgi.py
@@ -164,27 +166,52 @@ AI-Finance-System/
 │   │
 │   ├── finance/
 │   │   ├── migrations/
+│   │   │   ├── 0001_initial.py
+│   │   │   ├── 0002_*.py
+│   │   │   ├── 0003_*.py
+│   │   │   ├── 0004_*.py
+│   │   │   └── 0005_*.py
+│   │   │
 │   │   ├── management/
 │   │   │   └── commands/
 │   │   │       └── bootstrap_demo_data.py
+│   │   │
 │   │   ├── services/
 │   │   │   ├── fraud_service.py
 │   │   │   ├── forecast_service.py
 │   │   │   └── dashboard_service.py
+│   │   │
+│   │   ├── __init__.py
+│   │   ├── admin.py
+│   │   ├── apps.py
 │   │   ├── models.py
 │   │   ├── serializers.py
-│   │   ├── views.py
-│   │   ├── urls.py
 │   │   ├── tests.py
-│   │   └── admin.py
+│   │   ├── urls.py
+│   │   └── views.py
 │   │
 │   ├── manage.py
-│   └── requirements.txt
+│   ├── requirements.txt
+│   └── .env
 │
 ├── frontend/
+│   │
+│   ├── src/
+│   │   ├── App.jsx
+│   │   ├── App.css
+│   │   ├── main.jsx
+│   │   └── ...
+│   │
+│   ├── public/
+│   │   └── ...
+│   │
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── vite.config.js
+│   └── ...
+│
 ├── .gitignore
 └── README.md
-
 
 ---
 
