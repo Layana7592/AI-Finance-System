@@ -1,7 +1,7 @@
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from .permissions import IsAdminOrManager
 from rest_framework.views import APIView
 
 from .models import (
@@ -39,7 +39,7 @@ from .services.gemini_service import generate_gemini_report
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by("-user_id")
     serializer_class = UserSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAdminOrManager]
 
 
 # ============================================================
@@ -47,9 +47,18 @@ class UserViewSet(viewsets.ModelViewSet):
 # ============================================================
 
 class AccountViewSet(viewsets.ModelViewSet):
-    queryset = Account.objects.all().order_by("-account_id")
     serializer_class = AccountSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAdminOrManager]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.role.role_name == "Admin":
+            return Account.objects.all().order_by("-account_id")
+
+        return Account.objects.filter(
+            user__branch=user.branch
+        ).order_by("-account_id")
 
 
 # ============================================================
@@ -57,9 +66,30 @@ class AccountViewSet(viewsets.ModelViewSet):
 # ============================================================
 
 class TransactionViewSet(viewsets.ModelViewSet):
-    queryset = Transaction.objects.all().order_by("-transaction_time")
     serializer_class = TransactionSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # Admin → can access all transactions
+        if user.role.role_name == "Admin":
+            return Transaction.objects.all().order_by("-transaction_id")
+
+        # Manager → can access transactions from their branch
+        if user.role.role_name == "Manager":
+            return Transaction.objects.filter(
+                account__user__branch=user.branch
+            ).order_by("-transaction_id")
+
+        # Customer → can access only their own transactions
+        if user.role.role_name == "Customer":
+            return Transaction.objects.filter(
+                account__user=user
+            ).order_by("-transaction_id")
+
+        # Any unknown role → no access
+        return Transaction.objects.none()
 
 
 # ============================================================
@@ -69,20 +99,19 @@ class TransactionViewSet(viewsets.ModelViewSet):
 class FraudPredictionViewSet(viewsets.ModelViewSet):
     queryset = FraudPrediction.objects.all().order_by("-prediction_id")
     serializer_class = FraudPredictionSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     @action(
         detail=False,
         methods=["get"],
         url_path="evaluate",
+        permission_classes=[IsAdminOrManager],
     )
     def evaluate(self, request):
         """
         Evaluate Statistical Baseline and Isolation Forest.
-
         Metrics are calculated by Python.
         """
-
         try:
             results = evaluate_fraud_models()
 
@@ -99,9 +128,7 @@ class FraudPredictionViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-
-# ============================================================
+## ============================================================
 # FINANCIAL FORECAST
 # ============================================================
 
@@ -110,19 +137,19 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
         "forecast_month"
     )
     serializer_class = FinancialForecastSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     @action(
         detail=False,
         methods=["get"],
         url_path="evaluate",
+        permission_classes=[IsAdminOrManager],
     )
     def evaluate(self, request):
         """
         Compare Seasonal-Naive and SARIMA using
         chronological validation.
         """
-
         try:
             results = evaluate_forecast_models()
 
@@ -144,11 +171,11 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
         detail=False,
         methods=["post"],
         url_path="generate",
+        permission_classes=[IsAdminOrManager],
     )
     def generate(self, request):
         """
         Generate future financial forecasts.
-
         The forecast service may return Django model objects.
         These are serialized before being returned by the API.
         """
@@ -179,13 +206,6 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
 
             forecasts = generate_forecast(horizon)
 
-            # ------------------------------------------------
-            # IMPORTANT:
-            # generate_forecast() may return FinancialForecast
-            # model instances. DRF cannot return model objects
-            # directly as JSON.
-            # ------------------------------------------------
-
             if isinstance(forecasts, FinancialForecast):
                 serializer = self.get_serializer(forecasts)
 
@@ -205,8 +225,6 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_200_OK,
                 )
 
-            # If the service already returns dictionaries/JSON,
-            # return them directly.
             return Response(
                 forecasts,
                 status=status.HTTP_200_OK,
@@ -220,8 +238,6 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-
 # ============================================================
 # AUDIT LOG
 # ============================================================
@@ -229,7 +245,7 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
 class AuditLogViewSet(viewsets.ModelViewSet):
     queryset = AuditLog.objects.all().order_by("-log_id")
     serializer_class = AuditLogSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAdminOrManager]
 
 
 # ============================================================
@@ -237,10 +253,30 @@ class AuditLogViewSet(viewsets.ModelViewSet):
 # ============================================================
 
 class AlertViewSet(viewsets.ModelViewSet):
-    queryset = Alert.objects.all().order_by("-alert_id")
     serializer_class = AlertSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        user = self.request.user
+
+        # Admin → all alerts
+        if user.role.role_name == "Admin":
+            return Alert.objects.all().order_by("-alert_id")
+
+        # Manager → alerts from their branch
+        if user.role.role_name == "Manager":
+            return Alert.objects.filter(
+                transaction__account__user__branch=user.branch
+            ).order_by("-alert_id")
+
+        # Customer → alerts related to their own transactions
+        if user.role.role_name == "Customer":
+            return Alert.objects.filter(
+                transaction__account__user=user
+            ).order_by("-alert_id")
+
+        # Unknown role → no alerts
+        return Alert.objects.none()
 
 # ============================================================
 # JOURNAL ENTRY
@@ -251,7 +287,7 @@ class JournalEntryViewSet(viewsets.ModelViewSet):
         "-journal_entry_id"
     )
     serializer_class = JournalEntrySerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAdminOrManager]
 
 
 # ============================================================
@@ -278,7 +314,7 @@ class DashboardView(APIView):
     - System information
     """
 
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
 

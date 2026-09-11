@@ -122,6 +122,7 @@ class Command(BaseCommand):
             roles = [
                 Role(role_name="Admin"),
                 Role(role_name="Manager"),
+                Role(role_name="Analyst"),
                 Role(role_name="Customer"),
             ]
 

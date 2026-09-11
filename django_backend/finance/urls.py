@@ -17,12 +17,12 @@ from .views import (
 router = DefaultRouter()
 
 router.register("users", UserViewSet)
-router.register("accounts", AccountViewSet)
-router.register("transactions", TransactionViewSet)
+router.register("accounts", AccountViewSet, basename="account")
+router.register("transactions", TransactionViewSet, basename="transaction")
 router.register("fraud-predictions", FraudPredictionViewSet)
 router.register("forecasts", FinancialForecastViewSet)
 router.register("audit-logs", AuditLogViewSet)
-router.register("alerts", AlertViewSet)
+router.register("alerts", AlertViewSet, basename="alert")
 router.register("journal-entries", JournalEntryViewSet)
 
 urlpatterns = [
