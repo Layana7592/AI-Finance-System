@@ -1,7 +1,11 @@
 from rest_framework import status, viewsets
+from rest_framework.response import Response
+from .serializers import UserSerializer, UserCreateSerializer
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from .permissions import IsAdminOrManager
+from .permissions import IsAdminOrManager, IsAdminManagerOrAnalyst
+from .permissions import IsAdminOrManagerForWrite
+from .permissions import IsAdminOrManagerForWriteAlerts
 from rest_framework.views import APIView
 
 from .models import (
@@ -37,9 +41,22 @@ from .services.gemini_service import generate_gemini_report
 # ============================================================
 
 class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all().order_by("-user_id")
+    queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAdminOrManager]
+
+    def get_queryset(self):
+        user = self.request.user
+
+        if user.role.role_name == "Admin":
+            return User.objects.all().order_by("-user_id")
+
+        if user.role.role_name == "Manager":
+            return User.objects.filter(
+                branch=user.branch
+            ).order_by("-user_id")
+
+        return User.objects.none()
 
 
 # ============================================================
@@ -48,7 +65,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
 class AccountViewSet(viewsets.ModelViewSet):
     serializer_class = AccountSerializer
-    permission_classes = [IsAdminOrManager]
+    permission_classes = [IsAdminOrManagerForWrite]
 
     def get_queryset(self):
         user = self.request.user
@@ -56,10 +73,20 @@ class AccountViewSet(viewsets.ModelViewSet):
         if user.role.role_name == "Admin":
             return Account.objects.all().order_by("-account_id")
 
-        return Account.objects.filter(
-            user__branch=user.branch
-        ).order_by("-account_id")
+        if user.role.role_name == "Manager":
+            return Account.objects.filter(
+                user__branch=user.branch
+            ).order_by("-account_id")
 
+        if user.role.role_name == "Analyst":
+            return Account.objects.all().order_by("-account_id")
+
+        if user.role.role_name == "Customer":
+            return Account.objects.filter(
+                user=user
+            ).order_by("-account_id")
+
+        return Account.objects.none()
 
 # ============================================================
 # TRANSACTION
@@ -67,7 +94,7 @@ class AccountViewSet(viewsets.ModelViewSet):
 
 class TransactionViewSet(viewsets.ModelViewSet):
     serializer_class = TransactionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrManagerForWrite]
 
     def get_queryset(self):
         user = self.request.user
@@ -88,6 +115,10 @@ class TransactionViewSet(viewsets.ModelViewSet):
                 account__user=user
             ).order_by("-transaction_id")
 
+        # Analyst → can read all transactions
+        if user.role.role_name == "Analyst":
+            return Transaction.objects.all().order_by("-transaction_id")
+
         # Any unknown role → no access
         return Transaction.objects.none()
 
@@ -99,13 +130,13 @@ class TransactionViewSet(viewsets.ModelViewSet):
 class FraudPredictionViewSet(viewsets.ModelViewSet):
     queryset = FraudPrediction.objects.all().order_by("-prediction_id")
     serializer_class = FraudPredictionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminManagerOrAnalyst]
 
     @action(
         detail=False,
         methods=["get"],
         url_path="evaluate",
-        permission_classes=[IsAdminOrManager],
+        permission_classes = [IsAdminManagerOrAnalyst],
     )
     def evaluate(self, request):
         """
@@ -137,13 +168,13 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
         "forecast_month"
     )
     serializer_class = FinancialForecastSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminManagerOrAnalyst]
 
     @action(
         detail=False,
         methods=["get"],
         url_path="evaluate",
-        permission_classes=[IsAdminOrManager],
+        permission_classes=[IsAdminManagerOrAnalyst],
     )
     def evaluate(self, request):
         """
@@ -243,10 +274,12 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
 # ============================================================
 
 class AuditLogViewSet(viewsets.ModelViewSet):
+
     queryset = AuditLog.objects.all().order_by("-log_id")
     serializer_class = AuditLogSerializer
-    permission_classes = [IsAdminOrManager]
 
+    permission_classes = [IsAdminOrManager]
+    http_method_names = ["get", "head", "options"]
 
 # ============================================================
 # ALERT
@@ -254,7 +287,7 @@ class AuditLogViewSet(viewsets.ModelViewSet):
 
 class AlertViewSet(viewsets.ModelViewSet):
     serializer_class = AlertSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminOrManagerForWriteAlerts]
 
     def get_queryset(self):
         user = self.request.user
@@ -275,6 +308,9 @@ class AlertViewSet(viewsets.ModelViewSet):
                 transaction__account__user=user
             ).order_by("-alert_id")
 
+        # Analyst → can read all alerts
+        if user.role.role_name == "Analyst":
+            return Alert.objects.all().order_by("-alert_id")
         # Unknown role → no alerts
         return Alert.objects.none()
 
@@ -283,11 +319,15 @@ class AlertViewSet(viewsets.ModelViewSet):
 # ============================================================
 
 class JournalEntryViewSet(viewsets.ModelViewSet):
+
     queryset = JournalEntry.objects.all().order_by(
         "-journal_entry_id"
     )
+
     serializer_class = JournalEntrySerializer
+
     permission_classes = [IsAdminOrManager]
+    http_method_names = ["get", "head", "options"]
 
 
 # ============================================================
@@ -314,7 +354,7 @@ class DashboardView(APIView):
     - System information
     """
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdminManagerOrAnalyst]
 
     def get(self, request):
 
@@ -359,7 +399,7 @@ class GeminiReportView(APIView):
     - forecast values
     """
 
-    permission_classes = [AllowAny]
+    permission_classes = [IsAdminManagerOrAnalyst]
 
     def get(self, request):
 

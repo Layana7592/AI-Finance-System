@@ -83,7 +83,7 @@ class Command(BaseCommand):
         )
 
         # ============================================================
-        # CHECK DATABASE IS EMPTY
+        # CHECK EXISTING BOOTSTRAP DATA
         # ============================================================
 
         existing_transactions = Transaction.objects.count()
@@ -91,6 +91,61 @@ class Command(BaseCommand):
         existing_users = User.objects.count()
         existing_branches = Branch.objects.count()
         existing_roles = Role.objects.count()
+
+        # ============================================================
+        # SAFE / IDEMPOTENT RERUN
+        # ============================================================
+
+        if (
+            existing_transactions == transaction_count
+            and existing_accounts == 1000
+            and existing_users == 500
+            and existing_branches == 5
+            and existing_roles == 4
+        ):
+
+            actual_anomalies = Transaction.objects.filter(
+                is_anomaly=1
+            ).count()
+
+            if actual_anomalies == anomaly_count:
+
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        "Demo data already exists. "
+                        "No duplicate data created."
+                    )
+                )
+
+                self.stdout.write(
+                    f"Roles:        {existing_roles}"
+                )
+
+                self.stdout.write(
+                    f"Branches:     {existing_branches}"
+                )
+
+                self.stdout.write(
+                    f"Users:        {existing_users}"
+                )
+
+                self.stdout.write(
+                    f"Accounts:     {existing_accounts}"
+                )
+
+                self.stdout.write(
+                    f"Transactions: {existing_transactions:,}"
+                )
+
+                self.stdout.write(
+                    f"Anomalies:    {actual_anomalies:,}"
+                )
+
+                return
+
+        # ============================================================
+        # STOP ON PARTIAL / UNEXPECTED DATA
+        # ============================================================
 
         if any(
             [
@@ -102,9 +157,9 @@ class Command(BaseCommand):
             ]
         ):
             raise CommandError(
-                "Database is not empty. "
-                "bootstrap_demo_data must be run against "
-                "an empty finance database."
+                "Database contains existing or partial data. "
+                "Bootstrap stopped to prevent duplicate data. "
+                "Run this command on a clean finance database."
             )
 
         # ============================================================
@@ -117,7 +172,9 @@ class Command(BaseCommand):
             # ROLES
             # ========================================================
 
-            self.stdout.write("Creating roles...")
+            self.stdout.write(
+                "Creating roles..."
+            )
 
             roles = [
                 Role(role_name="Admin"),
@@ -139,7 +196,9 @@ class Command(BaseCommand):
             # BRANCHES
             # ========================================================
 
-            self.stdout.write("Creating branches...")
+            self.stdout.write(
+                "Creating branches..."
+            )
 
             branch_data = [
                 {
@@ -205,6 +264,7 @@ class Command(BaseCommand):
 
             for i in range(500):
 
+                # Distribute users across all branches
                 branch = branches[
                     i % len(branches)
                 ]
@@ -220,9 +280,10 @@ class Command(BaseCommand):
                 )
 
                 # IMPORTANT:
-                # Store a properly hashed password.
-                # Never manually store password hashes.
-                user.set_password("Password@123")
+                # Password is hashed using Django's password hasher.
+                user.set_password(
+                    "Password@123"
+                )
 
                 users.append(user)
 
@@ -316,6 +377,10 @@ class Command(BaseCommand):
                 "Failed",
             ]
 
+            # ========================================================
+            # DATE RANGE
+            # ========================================================
+
             start_date = datetime(
                 2024,
                 1,
@@ -342,6 +407,10 @@ class Command(BaseCommand):
                 )
             )
 
+            # ========================================================
+            # SEASONAL FACTORS
+            # ========================================================
+
             seasonal_factor = {
                 1: 1.00,
                 2: 0.95,
@@ -358,6 +427,7 @@ class Command(BaseCommand):
             }
 
             transactions = []
+
             generated_anomalies = 0
 
             # ========================================================
@@ -366,7 +436,9 @@ class Command(BaseCommand):
 
             for i in range(transaction_count):
 
-                account = random.choice(accounts)
+                account = random.choice(
+                    accounts
+                )
 
                 # ----------------------------------------------------
                 # TRANSACTION DATE
@@ -382,7 +454,7 @@ class Command(BaseCommand):
                 month = transaction_time.month
 
                 # ----------------------------------------------------
-                # SEASONAL AMOUNT
+                # BASE AMOUNT
                 # ----------------------------------------------------
 
                 base_amount = random.uniform(
@@ -390,6 +462,7 @@ class Command(BaseCommand):
                     75000,
                 )
 
+                # Apply monthly seasonality
                 amount = (
                     base_amount
                     * seasonal_factor.get(
@@ -398,6 +471,7 @@ class Command(BaseCommand):
                     )
                 )
 
+                # Small random variation
                 amount *= random.uniform(
                     0.85,
                     1.15,
@@ -420,6 +494,7 @@ class Command(BaseCommand):
                 if i in anomaly_indices:
 
                     is_anomaly = 1
+
                     generated_anomalies += 1
 
                     anomaly_type = random.choice(
@@ -430,6 +505,7 @@ class Command(BaseCommand):
                         ]
                     )
 
+                    # Large amount anomaly
                     if anomaly_type == "large_amount":
 
                         amount *= random.uniform(
@@ -437,6 +513,7 @@ class Command(BaseCommand):
                             15,
                         )
 
+                    # Extremely unusual amount
                     elif anomaly_type == "unusual_amount":
 
                         amount = random.uniform(
@@ -444,6 +521,7 @@ class Command(BaseCommand):
                             500000,
                         )
 
+                    # Unusual transaction type + amount
                     else:
 
                         transaction_type = random.choice(
@@ -522,6 +600,10 @@ class Command(BaseCommand):
             # VERIFY GENERATED DATA
             # ========================================================
 
+            actual_roles = Role.objects.count()
+
+            actual_branches = Branch.objects.count()
+
             actual_users = User.objects.count()
 
             actual_accounts = Account.objects.count()
@@ -539,6 +621,20 @@ class Command(BaseCommand):
             # ========================================================
             # VALIDATION
             # ========================================================
+
+            if actual_roles != 4:
+
+                raise CommandError(
+                    "Role count verification failed. "
+                    f"Expected 4, got {actual_roles}."
+                )
+
+            if actual_branches != 5:
+
+                raise CommandError(
+                    "Branch count verification failed. "
+                    f"Expected 5, got {actual_branches}."
+                )
 
             if actual_users != 500:
 

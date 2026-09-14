@@ -105,3 +105,42 @@ class IsAdminManagerOrCustomer(BasePermission):
                 "Customer",
             ]
         )
+
+
+class IsAdminOrManagerForWrite(IsAuthenticated):
+    """
+    Allows authenticated users to read.
+    Only Admin and Manager can modify data.
+    """
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        if request.method in ["GET", "HEAD", "OPTIONS"]:
+            return True
+
+        return request.user.role.role_name in [
+            "Admin",
+            "Manager",
+        ]
+
+
+class IsAdminOrManagerForWriteAlerts(IsAuthenticated):
+    """
+    Authenticated users can read alerts.
+    Only Admin and Manager can create, update, or delete alerts.
+    """
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        if request.method in ["GET", "HEAD", "OPTIONS"]:
+            return True
+
+        return request.user.role.role_name in [
+            "Admin",
+            "Manager",
+        ]
+

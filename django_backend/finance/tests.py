@@ -116,8 +116,8 @@ class TransactionAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-        self.role = Role.objects.create(
-            role_name="Transaction Test Role"
+        self.role, _ = Role.objects.get_or_create(
+            role_name="Customer"
         )
 
         self.branch = Branch.objects.create(
@@ -210,8 +210,8 @@ class UserAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-        self.role = Role.objects.create(
-            role_name="API Test Role"
+        self.role, _ = Role.objects.get_or_create(
+            role_name="Admin"
         )
 
         self.branch = Branch.objects.create(
@@ -308,8 +308,8 @@ class AccountAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-        self.role = Role.objects.create(
-            role_name="Account Test Role"
+        self.role, _ = Role.objects.get_or_create(
+            role_name="Customer"
         )
 
         self.branch = Branch.objects.create(
@@ -450,7 +450,7 @@ class DemoDataTests(TestCase):
 
         self.assertEqual(
             Role.objects.count(),
-            3
+            4
         )
 
         self.assertEqual(
@@ -528,8 +528,8 @@ class CoreAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
-        role = Role.objects.create(
-            role_name="Core API Role"
+        role, _ = Role.objects.get_or_create(
+            role_name="Admin"
         )
 
         branch = Branch.objects.create(
@@ -600,8 +600,8 @@ class ForecastGenerationTests(TestCase):
     @classmethod
     def setUpTestData(cls):
 
-        role = Role.objects.create(
-            role_name="Forecast Test Role"
+        role, _ = Role.objects.get_or_create(
+            role_name="Manager"
         )
 
         branch = Branch.objects.create(
@@ -732,3 +732,8 @@ class ForecastGenerationTests(TestCase):
             len(forecasts),
             1
         )
+
+
+
+
+
