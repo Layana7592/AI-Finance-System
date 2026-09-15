@@ -63,6 +63,7 @@ INSTALLED_APPS = [
     "corsheaders",
 
     "rest_framework",
+    "rest_framework.authtoken",
     "finance",
 ]
 
@@ -208,6 +209,7 @@ EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
         "rest_framework.authentication.SessionAuthentication",
         "rest_framework.authentication.BasicAuthentication",
     ],
@@ -215,7 +217,6 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
 }
-
 
 # ============================================================
 # CORS - React Frontend

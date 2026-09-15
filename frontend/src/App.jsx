@@ -15,6 +15,7 @@ import {
 import "./App.css";
 
 const API_BASE_URL = "http://127.0.0.1:8000/api";
+const API_TOKEN = localStorage.getItem("finance_api_token");
 
 const INR = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -66,7 +67,7 @@ function normalizePercentage(value) {
 /*
  * Model metrics from the API are decimal fractions:
  *
- * 1.0    -> 100%
+ * 1.0 -> 1%
  * 0.788  -> 78.8%
  * 0.884  -> 88.4%
  * 0.8966 -> 89.66%
@@ -589,11 +590,14 @@ function extractDashboard(payload) {
 
 async function fetchJSON(url, options = {}) {
   const response = await fetch(url, {
+    ...options,
     headers: {
       Accept: "application/json",
+      ...(API_TOKEN
+        ? { Authorization: `Token ${API_TOKEN}` }
+        : {}),
       ...(options.headers || {}),
     },
-    ...options,
   });
 
   if (!response.ok) {
@@ -1059,8 +1063,8 @@ function App() {
         const normalizedForecast =
           extractForecastData(payload);
           
-        console.log("Dashboard API response:", payload);
-        console.log("Forecast data:", normalizedForecast);
+
+
 
         setDashboard(
           normalizedDashboard
