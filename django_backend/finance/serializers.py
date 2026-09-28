@@ -118,6 +118,41 @@ class TransactionSerializer(serializers.ModelSerializer):
         model = Transaction
         fields = "__all__"
 
+    def validate_account(self, account):
+        request = self.context.get("request")
+
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError(
+                "Authentication is required."
+            )
+
+        user = request.user
+        role = getattr(
+            getattr(user, "role", None),
+            "role_name",
+            None
+        )
+
+        if role == "Admin":
+            return account
+
+        if role == "Manager":
+            if account.user.branch_id != user.branch_id:
+                raise serializers.ValidationError(
+                    "You can access only accounts in your branch."
+                )
+            return account
+
+        if role == "Customer":
+            if account.user_id != user.user_id:
+                raise serializers.ValidationError(
+                    "You can access only your own account."
+                )
+            return account
+
+        raise serializers.ValidationError(
+            "You do not have permission to use this account."
+        )
 
 # ==================================================
 # FRAUD PREDICTION

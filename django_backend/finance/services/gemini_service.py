@@ -156,56 +156,89 @@ VERIFIED APPLICATION RESULTS:
 """
 
 
+
 # ============================================================
 # GENERATE REPORT
 # ============================================================
 
 def generate_gemini_report():
     """
-    Generate a Gemini report from verified application results.
+    Generate a management report using verified Python results.
 
-    Flow:
-
-        Database
-            ↓
-        Python evaluation
-            ↓
-        Verified metrics
-            ↓
-        Controlled prompt
-            ↓
-        Gemini 3.6 Flash
-            ↓
-        Management report
+    Python calculates the metrics.
+    Gemini only interprets the verified results.
+    If Gemini is unavailable, return a fallback report.
     """
 
+    # Always calculate verified results first.
+    # If analytics itself fails, let the error be handled
+    # separately rather than pretending Gemini failed.
     verified_results = get_verified_results()
 
-    prompt = build_report_prompt(
-        verified_results
-    )
+    # Build the controlled prompt from verified results.
+    prompt = build_report_prompt(verified_results)
 
-    client = get_gemini_client()
+    try:
 
-    # Google currently recommends the Interactions API
-    # for new Gemini integrations.
-    interaction = client.interactions.create(
-        model="gemini-3.6-flash",
-        input=prompt,
-    )
+        client = get_gemini_client()
 
-    report_text = getattr(
-        interaction,
-        "output_text",
-        None,
-    )
-
-    if not report_text:
-        raise RuntimeError(
-            "Gemini returned an empty report."
+        interaction = client.interactions.create(
+            model="gemini-3.6-flash",
+            input=prompt,
         )
 
-    return {
-        "verified_results": verified_results,
-        "report": report_text,
-    }
+        report_text = getattr(
+            interaction,
+            "output_text",
+            None,
+        )
+
+        if not report_text or not report_text.strip():
+            raise RuntimeError(
+                "Gemini returned an empty report."
+            )
+
+        return {
+            "verified_results": verified_results,
+            "report": report_text,
+            "report_source": "gemini",
+            "gemini_available": True,
+        }
+
+    except Exception as exc:
+        # Do not allow Gemini failures to stop the
+        # financial analytics system.
+        print(
+            f"Gemini report unavailable: {exc}"
+        )
+
+        fallback_report = """
+# Financial Analytics Management Report
+
+## AI Reporting Status
+
+Gemini is currently unavailable. This report contains
+verified Python-computed analytics, but the AI-generated
+interpretation could not be created.
+
+## Available Results
+
+The verified fraud detection and forecasting metrics
+are included in the API response under verified_results.
+
+## Important Notice
+
+No additional numerical claims or recommendations have
+been generated because the AI reporting service is
+unavailable.
+
+Please review the verified results directly or retry
+the report when Gemini becomes available.
+"""
+
+        return {
+            "verified_results": verified_results,
+            "report": fallback_report,
+            "report_source": "fallback",
+            "gemini_available": False,
+        }

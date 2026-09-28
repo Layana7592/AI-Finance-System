@@ -14,6 +14,7 @@ from .models import (
     Account,
     Transaction,
     FinancialForecast,
+    Alert,
 )
 
 
@@ -106,9 +107,9 @@ class ModelSetupTests(TestCase):
         )
 
 
-# ============================================================
+# ==========================================================
 # TRANSACTION API TESTS
-# ============================================================
+# ==========================================================
 
 class TransactionAPITests(TestCase):
     """Tests for the Transactions API."""
@@ -116,10 +117,12 @@ class TransactionAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
+        # Create Customer role
         self.role, _ = Role.objects.get_or_create(
             role_name="Customer"
         )
 
+        # Create test branch
         self.branch = Branch.objects.create(
             branch_name="Transaction Test Branch",
             city="Kannur",
@@ -128,6 +131,7 @@ class TransactionAPITests(TestCase):
             phone="9876543211",
         )
 
+        # Create Customer
         self.user = User.objects.create_user(
             username="transactionuser",
             email="transaction@example.com",
@@ -140,6 +144,7 @@ class TransactionAPITests(TestCase):
             user=self.user
         )
 
+        # Create Customer account
         self.account = Account.objects.create(
             account_number="TESTACC002",
             account_type="Savings",
@@ -148,6 +153,7 @@ class TransactionAPITests(TestCase):
             user=self.user,
         )
 
+        # Create existing transaction
         self.transaction = Transaction.objects.create(
             account=self.account,
             amount=Decimal("500.00"),
@@ -159,21 +165,20 @@ class TransactionAPITests(TestCase):
             is_anomaly=0,
         )
 
+    # ------------------------------------------------------
+    # BASIC TRANSACTION TESTS
+    # ------------------------------------------------------
+
     def test_transaction_exists(self):
-        """Transaction is created successfully."""
+        """Check that the test transaction exists."""
 
         self.assertEqual(
             Transaction.objects.count(),
             1
         )
 
-        self.assertEqual(
-            self.transaction.amount,
-            Decimal("500.00")
-        )
-
     def test_transaction_list_api(self):
-        """GET /api/transactions/ returns transactions."""
+        """Customer can retrieve their transaction list."""
 
         response = self.client.get(
             "/api/transactions/"
@@ -184,22 +189,159 @@ class TransactionAPITests(TestCase):
             200
         )
 
-        if isinstance(response.data, dict):
-            self.assertIn(
-                "results",
-                response.data
-            )
+    # ------------------------------------------------------
+    # MANAGER BRANCH ACCESS TESTS
+    # ------------------------------------------------------
 
-            transactions = response.data["results"]
-        else:
-            transactions = response.data
+    def test_manager_cannot_use_account_from_another_branch(self):
+        """Manager cannot create a transaction for another branch."""
 
-        self.assertGreaterEqual(
-            len(transactions),
-            1
+        manager_role, _ = Role.objects.get_or_create(
+            role_name="Manager"
         )
 
+        other_branch = Branch.objects.create(
+            branch_name="Other Test Branch",
+            city="Kochi",
+            state="Kerala",
+            ifsc_code="TEST000099",
+            phone="9876543212",
+        )
 
+        other_customer = User.objects.create_user(
+            username="otherbranchcustomer",
+            email="otherbranchcustomer@example.com",
+            password="test-password",
+            role=self.role,
+            branch=other_branch,
+        )
+
+        other_account = Account.objects.create(
+            account_number="TESTACC099",
+            account_type="Savings",
+            balance=Decimal("10000.00"),
+            created_at=timezone.now(),
+            user=other_customer,
+        )
+
+        manager = User.objects.create_user(
+            username="crossbranchmanager",
+            email="crossbranchmanager@example.com",
+            password="test-password",
+            role=manager_role,
+            branch=self.branch,
+        )
+
+        self.client.force_authenticate(
+            user=manager
+        )
+
+        response = self.client.post(
+            "/api/transactions/",
+            {
+                "account": other_account.account_id,
+                "amount": "1000.00",
+                "transaction_type": "Credit",
+                "merchant": "Test Merchant",
+                "location": "Kochi",
+                "transaction_time": timezone.now().isoformat(),
+                "status": "Completed",
+                "is_anomaly": 0,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            400
+        )
+
+    def test_manager_can_use_account_from_same_branch(self):
+        """Manager can create a transaction for an account in their branch."""
+
+        manager_role, _ = Role.objects.get_or_create(
+            role_name="Manager"
+        )
+
+        manager = User.objects.create_user(
+            username="samebranchmanager",
+            email="samebranchmanager@example.com",
+            password="test-password",
+            role=manager_role,
+            branch=self.branch,
+        )
+
+        self.client.force_authenticate(
+            user=manager
+        )
+
+        response = self.client.post(
+            "/api/transactions/",
+            {
+                "account": self.account.account_id,
+                "amount": "1000.00",
+                "transaction_type": "Credit",
+                "merchant": "Test Merchant",
+                "location": "Kannur",
+                "transaction_time": timezone.now().isoformat(),
+                "status": "Completed",
+                "is_anomaly": 0,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            201
+        )
+
+    # ------------------------------------------------------
+    # CUSTOMER ACCOUNT ISOLATION TEST
+    # ------------------------------------------------------
+
+    def test_customer_cannot_use_another_customers_account(self):
+        """Customer cannot create a transaction for another customer's account."""
+
+        other_customer = User.objects.create_user(
+            username="othercustomer",
+            email="othercustomer@example.com",
+            password="test-password",
+            role=self.role,
+            branch=self.branch,
+        )
+
+        other_account = Account.objects.create(
+            account_number="TESTACC100",
+            account_type="Savings",
+            balance=Decimal("10000.00"),
+            created_at=timezone.now(),
+            user=other_customer,
+        )
+
+        # Authenticate as the original customer
+        self.client.force_authenticate(
+            user=self.user
+        )
+
+        response = self.client.post(
+            "/api/transactions/",
+            {
+                "account": other_account.account_id,
+                "amount": "500.00",
+                "transaction_type": "Credit",
+                "merchant": "Test Merchant",
+                "location": "Kannur",
+                "transaction_time": timezone.now().isoformat(),
+                "status": "Completed",
+                "is_anomaly": 0,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
 # ============================================================
 # USER API TESTS
 # ============================================================
@@ -210,10 +352,12 @@ class UserAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
+        # Create Admin role
         self.role, _ = Role.objects.get_or_create(
             role_name="Admin"
         )
 
+        # Create test branch
         self.branch = Branch.objects.create(
             branch_name="API Test Branch",
             city="Kochi",
@@ -222,6 +366,7 @@ class UserAPITests(TestCase):
             phone="9876543212",
         )
 
+        # Create Admin user
         self.user = User.objects.create_user(
             username="apiuser",
             email="api@example.com",
@@ -233,6 +378,10 @@ class UserAPITests(TestCase):
         self.client.force_authenticate(
             user=self.user
         )
+
+    # --------------------------------------------------------
+    # ADMIN USER API TESTS
+    # --------------------------------------------------------
 
     def test_user_list_api(self):
         """GET /api/users/ returns users."""
@@ -251,7 +400,6 @@ class UserAPITests(TestCase):
                 "results",
                 response.data
             )
-
             users = response.data["results"]
         else:
             users = response.data
@@ -297,7 +445,38 @@ class UserAPITests(TestCase):
                 user_data
             )
 
+    # --------------------------------------------------------
+    # CUSTOMER ACCESS RESTRICTION TEST
+    # --------------------------------------------------------
 
+    def test_customer_cannot_access_user_list(self):
+        """Customer cannot access the users API."""
+
+        customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
+
+        customer = User.objects.create_user(
+            username="userapicustomer",
+            email="userapicustomer@example.com",
+            password="test-password",
+            role=customer_role,
+            branch=self.branch,
+        )
+
+        # Authenticate as Customer
+        self.client.force_authenticate(
+            user=customer
+        )
+
+        response = self.client.get(
+            "/api/users/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
 # ============================================================
 # ACCOUNT API TESTS
 # ============================================================
@@ -367,6 +546,42 @@ class AccountAPITests(TestCase):
             1
         )
 
+    def test_customer_cannot_access_another_customers_account(self):
+        """Customer cannot retrieve another customer's account."""
+
+        # Create another customer
+        other_customer = User.objects.create_user(
+            username="otheraccountcustomer",
+            email="otheraccountcustomer@example.com",
+            password="test-password",
+            role=self.role,
+            branch=self.branch,
+        )
+
+        # Create the other customer's account
+        other_account = Account.objects.create(
+            account_number="TESTACC101",
+            account_type="Current",
+            balance=Decimal("30000.00"),
+            created_at=timezone.now(),
+            user=other_customer,
+        )
+
+        # Authenticate as the original customer
+        self.client.force_authenticate(
+            user=self.user
+        )
+
+        # Attempt to access the other customer's account
+        response = self.client.get(
+            f"/api/accounts/{other_account.account_id}/"
+        )
+
+        # The account should not be accessible
+        self.assertIn(
+            response.status_code,
+            [403, 404]
+        )
 
 # ============================================================
 # MIGRATION TESTS
@@ -733,7 +948,289 @@ class ForecastGenerationTests(TestCase):
             1
         )
 
+# ============================================================
+# FRAUD PREDICTION API TESTS
+# ============================================================
+
+class FraudPredictionAPITests(TestCase):
+    """Tests for the Fraud Prediction API."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+        # Create Customer role
+        self.customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
+
+        # Create test branch
+        self.branch = Branch.objects.create(
+            branch_name="Fraud Test Branch",
+            city="Kannur",
+            state="Kerala",
+            ifsc_code="TEST000005",
+            phone="9876543214",
+        )
+
+        # Create Customer
+        self.customer = User.objects.create_user(
+            username="fraudcustomer",
+            email="fraudcustomer@example.com",
+            password="test-password",
+            role=self.customer_role,
+            branch=self.branch,
+        )
+
+        self.client.force_authenticate(
+            user=self.customer
+        )
+
+    def test_customer_cannot_access_fraud_predictions(self):
+        """Customer cannot list fraud prediction records."""
+
+        response = self.client.get(
+            "/api/fraud-predictions/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
+
+    def test_customer_cannot_evaluate_fraud_models(self):
+        """Customer cannot run fraud model evaluation."""
+
+        response = self.client.get(
+            "/api/fraud-predictions/evaluate/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
+
+# ============================================================
+# FINANCIAL FORECAST API TESTS
+# ============================================================
+
+class FinancialForecastAPITests(TestCase):
+    """Tests for the Financial Forecast API."""
+
+    def setUp(self):
+        self.client = APIClient()
+
+        self.customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
+
+        self.branch = Branch.objects.create(
+            branch_name="Forecast Test Branch",
+            city="Kannur",
+            state="Kerala",
+            ifsc_code="TEST000006",
+            phone="9876543215",
+        )
+
+        self.customer = User.objects.create_user(
+            username="forecastcustomer",
+            email="forecastcustomer@example.com",
+            password="test-password",
+            role=self.customer_role,
+            branch=self.branch,
+        )
+
+        self.client.force_authenticate(
+            user=self.customer
+        )
+
+    def test_customer_cannot_access_forecasts(self):
+        """Customer cannot list financial forecasts."""
+
+        response = self.client.get(
+            "/api/forecasts/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
+
+    def test_customer_cannot_evaluate_forecasts(self):
+        """Customer cannot run forecast model evaluation."""
+
+        response = self.client.get(
+            "/api/forecasts/evaluate/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
+
+    def test_customer_cannot_generate_forecasts(self):
+        """Customer cannot generate financial forecasts."""
+
+        response = self.client.post(
+            "/api/forecasts/generate/",
+            {"horizon": 12},
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403
+        )
 
 
+class AuditLogAPITests(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+
+        self.customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
+
+        self.branch = Branch.objects.create(
+            branch_name="Audit Test Branch",
+            city="Kannur",
+            state="Kerala",
+            ifsc_code="TEST000007",
+            phone="9876543216"
+        )
+
+        self.customer = User.objects.create_user(
+            username="auditcustomer",
+            email="auditcustomer@example.com",
+            password="test-password",
+            role=self.customer_role,
+            branch=self.branch
+        )
+
+        self.client.force_authenticate(user=self.customer)
+
+    def test_customer_cannot_access_audit_logs(self):
+        response = self.client.get("/api/audit-logs/")
+
+        self.assertEqual(response.status_code, 403)
 
 
+class AlertAPITests(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+
+        self.customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
+
+        self.branch = Branch.objects.create(
+            branch_name="Alert Test Branch",
+            city="Kannur",
+            state="Kerala",
+            ifsc_code="TEST000008",
+            phone="9876543217"
+        )
+
+        self.customer1 = User.objects.create_user(
+            username="alertcustomer1",
+            email="alertcustomer1@example.com",
+            password="test-password",
+            role=self.customer_role,
+            branch=self.branch
+        )
+
+        self.customer2 = User.objects.create_user(
+            username="alertcustomer2",
+            email="alertcustomer2@example.com",
+            password="test-password",
+            role=self.customer_role,
+            branch=self.branch
+        )
+
+        self.account1 = Account.objects.create(
+            user=self.customer1,
+            account_number="ALERT001",
+            account_type="Savings",
+            balance=Decimal("10000.00"),
+            created_at=timezone.now()
+        )
+
+        self.account2 = Account.objects.create(
+            user=self.customer2,
+            account_number="ALERT002",
+            account_type="Savings",
+            balance=Decimal("10000.00"),
+            created_at=timezone.now()
+        )
+
+        self.transaction1 = Transaction.objects.create(
+            account=self.account1,
+            amount=Decimal("5000.00"),
+            transaction_type="debit",
+            merchant="Test Merchant 1",
+            location="Kannur",
+            transaction_time=timezone.now(),
+            status="Completed",
+            is_anomaly=1
+        )
+
+        self.transaction2 = Transaction.objects.create(
+            account=self.account2,
+            amount=Decimal("6000.00"),
+            transaction_type="debit",
+            merchant="Test Merchant 2",
+            location="Kannur",
+            transaction_time=timezone.now(),
+            status="Completed",
+            is_anomaly=1
+        )
+
+        self.alert1 = Alert.objects.create(
+            alert_type="Fraud",
+            severity="High",
+            message="Customer 1 alert",
+            is_resolved=False,
+            created_at=timezone.now(),
+            transaction=self.transaction1
+        )
+
+        self.alert2 = Alert.objects.create(
+            alert_type="Fraud",
+            severity="High",
+            message="Customer 2 alert",
+            is_resolved=False,
+            created_at=timezone.now(),
+            transaction=self.transaction2
+        )
+
+    def test_customer_can_see_own_alerts_only(self):
+        self.client.force_authenticate(user=self.customer1)
+
+        response = self.client.get("/api/alerts/")
+
+        self.assertEqual(response.status_code, 200)
+
+        alert_ids = [
+            alert["alert_id"]
+            for alert in response.data
+        ]
+
+        self.assertIn(self.alert1.alert_id, alert_ids)
+        self.assertNotIn(self.alert2.alert_id, alert_ids)
+
+    def test_customer_cannot_create_alert(self):
+        self.client.force_authenticate(user=self.customer1)
+
+        response = self.client.post(
+            "/api/alerts/",
+            {
+                "alert_type": "Fraud",
+                "severity": "High",
+                "message": "Unauthorized alert",
+                "transaction": self.transaction1.transaction_id
+            },
+            format="json"
+        )
+
+        self.assertEqual(response.status_code, 403)

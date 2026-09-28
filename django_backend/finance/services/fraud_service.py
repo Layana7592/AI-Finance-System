@@ -1165,11 +1165,19 @@ def isolation_forest_predictions(
     # HYBRID SCORE
     # --------------------------------------------------------
 
+    strong_signal = (
+    X[:, 1]
+    + X[:, 2]
+    + X[:, 3]
+    + X[:, 6]
+    )
+
+    if strong_signal.max() > 0:
+        strong_signal = strong_signal / strong_signal.max()
+
     hybrid_scores = (
-        0.60
-        * isolation_percentiles
-        + 0.40
-        * behavioural_scores
+    0.30 * isolation_percentiles
+    + 0.70 * strong_signal
     )
 
     # --------------------------------------------------------
@@ -1177,32 +1185,24 @@ def isolation_forest_predictions(
     # --------------------------------------------------------
 
     anomaly_count = max(
-        1,
-        int(
-            round(
-                len(hybrid_scores)
-                * 0.01
-            )
-        ),
+    1,
+    int(
+        round(
+            len(hybrid_scores) * 0.01
+        )
+    ),
     )
 
-    sorted_indexes = np.argsort(
-        hybrid_scores
-    )[::-1]
+    sorted_indexes = np.argsort(hybrid_scores)[::-1]
 
     predictions = np.zeros(
-        len(hybrid_scores),
-        dtype=int,
+    len(hybrid_scores),
+    dtype=int,
     )
 
-    predictions[
-        sorted_indexes[
-            :anomaly_count
-        ]
-    ] = 1
+    predictions[sorted_indexes[:anomaly_count]] = 1
 
     return predictions
-
 
 # ============================================================
 # METRICS

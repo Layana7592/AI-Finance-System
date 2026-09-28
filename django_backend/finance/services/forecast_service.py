@@ -2,9 +2,11 @@ from decimal import Decimal
 
 import numpy as np
 import pandas as pd
+
 from django.db.models import Sum
 from django.db.models.functions import TruncMonth
 from django.utils import timezone
+
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.stattools import adfuller
 
@@ -171,7 +173,7 @@ def check_seasonality(
     A stronger positive lag-12 correlation indicates that
     values tend to resemble the same month in the previous year.
 
-    This is a diagnostic, not proof of seasonality.
+    This is a diagnostic, not a statistical significance test.
     """
 
     series = pd.Series(
@@ -207,8 +209,6 @@ def check_seasonality(
 
         correlation = float(correlation)
 
-        # Diagnostic threshold only; it is not a statistical
-        # significance test.
         seasonality_detected = bool(
             correlation >= 0.50
         )
@@ -302,21 +302,28 @@ def seasonal_naive_forecast(
 
 def sarima_forecast(
     train_series,
-    periods=12,
+    periods=1,
 ):
     """
-    Forecast using a stationarity-aware SARIMA/ARIMA model.
+    Forecast using a stationarity-aware SARIMA model.
 
-    For short training windows, seasonal AR parameters are not
-    estimated because there are not enough observations.
+    Model logic:
 
-    If SARIMA fitting fails, Seasonal-Naive is used as fallback.
+        1. Check stationarity using ADF.
+        2. If non-stationary, use first differencing (d=1).
+        3. If enough historical data exists, include
+           yearly seasonal structure with period 12.
+        4. Forecast future observations.
+        5. Fall back to Seasonal-Naive if SARIMA fitting fails.
+
+    This is an interpretable statistical forecasting model,
+    not an AI/ML model.
     """
 
     series = pd.Series(
         train_series,
         dtype="float64",
-    ).reset_index(drop=True)
+    ).dropna().reset_index(drop=True)
 
     if len(series) == 0:
         return [0.0] * periods
@@ -329,49 +336,43 @@ def sarima_forecast(
             for _ in range(periods)
         ]
 
-    stationarity = check_stationarity(series)
-
-    d_order = 0 if stationarity["stationary"] else 1
-
     try:
-        # --------------------------------------------------
-        # SHORT SERIES
-        # --------------------------------------------------
-        # With fewer than 24 observations, do not estimate
-        # seasonal AR parameters.
-        # --------------------------------------------------
 
-        if len(series) < 24:
+        # ----------------------------------------------------
+        # STATIONARITY
+        # ----------------------------------------------------
 
-            model = SARIMAX(
-                series,
-                order=(1, d_order, 0),
-                seasonal_order=(0, 0, 0, 0),
-                trend="n" if d_order == 1 else "c",
-                enforce_stationarity=False,
-                enforce_invertibility=False,
-            )
+        stationarity = check_stationarity(series)
 
-        # --------------------------------------------------
-        # LONGER SERIES
-        # --------------------------------------------------
-        # Only estimate seasonal structure when at least
-        # two complete seasonal cycles are available.
-        # --------------------------------------------------
-
+        if stationarity["stationary"] is False:
+            d = 1
         else:
+            d = 0
 
-            model = SARIMAX(
-                series,
-                order=(1, d_order, 0),
-                seasonal_order=(1, 0, 0, 12),
-                trend="n" if d_order == 1 else "c",
-                enforce_stationarity=False,
-                enforce_invertibility=False,
-            )
+        # ----------------------------------------------------
+        # SEASONAL STRUCTURE
+        # ----------------------------------------------------
+
+        if len(series) >= 24:
+            seasonal_order = (1, 0, 0, 12)
+        else:
+            seasonal_order = (0, 0, 0, 0)
+
+        # ----------------------------------------------------
+        # SARIMA MODEL
+        # ----------------------------------------------------
+
+        model = SARIMAX(
+            series,
+            order=(1, d, 0),
+            seasonal_order=seasonal_order,
+            trend="c" if d == 0 else "n",
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+        )
 
         fitted_model = model.fit(
-            disp=False,
+            disp=False
         )
 
         raw_forecast = fitted_model.forecast(
@@ -402,6 +403,8 @@ def sarima_forecast(
             periods=periods,
             seasonal_period=12,
         )
+
+
 # ============================================================
 # FORECAST METRICS
 # ============================================================
@@ -411,7 +414,7 @@ def calculate_forecast_metrics(
     predicted,
 ):
     """
-    Calculate standard forecasting metrics.
+    Calculate forecasting metrics.
 
     Metrics:
         MAE
@@ -453,11 +456,12 @@ def calculate_forecast_metrics(
         )
     )
 
-    # MAPE is calculated only for non-zero
-    # actual values.
+    # MAPE is calculated only for non-zero actual values.
+
     non_zero = actual != 0
 
     if np.any(non_zero):
+
         mape = float(
             np.mean(
                 np.abs(
@@ -470,8 +474,10 @@ def calculate_forecast_metrics(
             )
             * 100
         )
+
     else:
         mape = 0.0
+
 
     return {
         "mae": round(mae, 2),
@@ -490,8 +496,8 @@ def evaluate_series_models(
     validation_periods=12,
 ):
     """
-    Compare Seasonal-Naive and SARIMA using expanding-window
-    one-step-ahead validation.
+    Compare Seasonal-Naive and SARIMA using
+    expanding-window one-step-ahead validation.
 
     Example with 24 months:
 
@@ -509,12 +515,9 @@ def evaluate_series_models(
             Train = months 1-23
             Test  = month 24
 
-    This is stronger than using only one fixed
-    train/validation split because the model is
-    repeatedly evaluated at different points in time.
+    No random shuffling is used because this is time-series data.
 
-    The validation is chronological. No random shuffling
-    is used.
+    The final model is selected using validation MAE.
     """
 
     series = pd.Series(
@@ -533,9 +536,9 @@ def evaluate_series_models(
             "are required for expanding-window validation."
         )
 
-    # --------------------------------------------------------
-    # DIAGNOSTICS ON THE COMPLETE SERIES
-    # --------------------------------------------------------
+    # ========================================================
+    # FULL-SERIES DIAGNOSTICS
+    # ========================================================
 
     stationarity = check_stationarity(
         series
@@ -546,9 +549,9 @@ def evaluate_series_models(
         seasonal_period=12,
     )
 
-    # --------------------------------------------------------
-    # EXPANDING-WINDOW VALIDATION
-    # --------------------------------------------------------
+    # ========================================================
+    # VALIDATION STORAGE
+    # ========================================================
 
     seasonal_naive_actual = []
     seasonal_naive_predictions = []
@@ -557,6 +560,10 @@ def evaluate_series_models(
     sarima_predictions = []
 
     fold_results = []
+
+    # ========================================================
+    # EXPANDING-WINDOW VALIDATION
+    # ========================================================
 
     for fold in range(validation_periods):
 
@@ -574,7 +581,7 @@ def evaluate_series_models(
         )
 
         # ----------------------------------------------------
-        # SEASONAL-NAIVE ONE-STEP FORECAST
+        # SEASONAL-NAIVE
         # ----------------------------------------------------
 
         seasonal_prediction = float(
@@ -586,7 +593,7 @@ def evaluate_series_models(
         )
 
         # ----------------------------------------------------
-        # SARIMA ONE-STEP FORECAST
+        # SARIMA
         # ----------------------------------------------------
 
         sarima_prediction = float(
@@ -595,6 +602,10 @@ def evaluate_series_models(
                 periods=1,
             )[0]
         )
+
+        # ----------------------------------------------------
+        # STORE RESULTS
+        # ----------------------------------------------------
 
         seasonal_naive_actual.append(
             actual_value
@@ -631,34 +642,31 @@ def evaluate_series_models(
             }
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # MODEL METRICS
-    # --------------------------------------------------------
+    # ========================================================
 
-    seasonal_naive_metrics = (
-        calculate_forecast_metrics(
-            seasonal_naive_actual,
-            seasonal_naive_predictions,
-        )
+    seasonal_naive_metrics = calculate_forecast_metrics(
+        seasonal_naive_actual,
+        seasonal_naive_predictions,
     )
 
-    sarima_metrics = (
-        calculate_forecast_metrics(
-            sarima_actual,
-            sarima_predictions,
-        )
+    sarima_metrics = calculate_forecast_metrics(
+        sarima_actual,
+        sarima_predictions,
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # MAE STABILITY
-    # --------------------------------------------------------
+    # ========================================================
 
     seasonal_naive_errors = np.abs(
         np.asarray(
             seasonal_naive_actual,
             dtype=float,
         )
-        - np.asarray(
+        -
+        np.asarray(
             seasonal_naive_predictions,
             dtype=float,
         )
@@ -669,43 +677,35 @@ def evaluate_series_models(
             sarima_actual,
             dtype=float,
         )
-        - np.asarray(
+        -
+        np.asarray(
             sarima_predictions,
             dtype=float,
         )
     )
 
-    seasonal_naive_mae_std = float(
-        np.std(
-            seasonal_naive_errors
-        )
-    )
-
-    sarima_mae_std = float(
-        np.std(
-            sarima_errors
-        )
-    )
-
-    seasonal_naive_metrics[
-        "mae_std"
-    ] = round(
-        seasonal_naive_mae_std,
+    seasonal_naive_metrics["mae_std"] = round(
+        float(
+            np.std(
+                seasonal_naive_errors
+            )
+        ),
         2,
     )
 
-    sarima_metrics[
-        "mae_std"
-    ] = round(
-        sarima_mae_std,
+    sarima_metrics["mae_std"] = round(
+        float(
+            np.std(
+                sarima_errors
+            )
+        ),
         2,
     )
 
-    # --------------------------------------------------------
-    # DETERMINE BETTER MODEL
-    # --------------------------------------------------------
+    # ========================================================
+    # MODEL SELECTION
+    # ========================================================
 
-    # MAE is the primary model-selection metric.
     if (
         sarima_metrics["mae"]
         < seasonal_naive_metrics["mae"]
@@ -721,21 +721,26 @@ def evaluate_series_models(
     else:
         best_model = "Equal"
 
-    # --------------------------------------------------------
+    # ========================================================
     # RETURN RESULTS
-    # --------------------------------------------------------
+    # ========================================================
 
     return {
         "diagnostics": {
             "stationarity": stationarity,
             "seasonality": seasonality,
         },
+
         "validation": {
-            "method": "Expanding-window one-step-ahead validation",
+            "method": (
+                "Expanding-window "
+                "one-step-ahead validation"
+            ),
             "initial_training_months": train_periods,
             "validation_months": validation_periods,
             "folds": validation_periods,
         },
+
         "seasonal_naive": {
             **seasonal_naive_metrics,
             "predictions": [
@@ -744,6 +749,7 @@ def evaluate_series_models(
                 in seasonal_naive_predictions
             ],
         },
+
         "sarima": {
             **sarima_metrics,
             "predictions": [
@@ -752,11 +758,15 @@ def evaluate_series_models(
                 in sarima_predictions
             ],
         },
+
         "actual": [
             round(value, 2)
-            for value in seasonal_naive_actual
+            for value
+            in seasonal_naive_actual
         ],
+
         "fold_results": fold_results,
+
         "best_model": best_model,
     }
 
@@ -767,20 +777,27 @@ def evaluate_series_models(
 
 def evaluate_forecast_models():
     """
-    Compare Seasonal-Naive and SARIMA for:
+    Evaluate forecasting models for:
 
         1. Income
         2. Expense
 
-    Evaluation includes:
-
+    Diagnostics:
         - ADF stationarity test
-        - Lag-12 seasonality diagnostic
+        - Lag-12 seasonality
         - Expanding-window validation
+
+    Metrics:
         - MAE
         - RMSE
         - MAPE
         - MAE standard deviation
+
+    Models:
+        - Seasonal-Naive baseline
+        - SARIMA
+
+    The model with the lower validation MAE is selected.
     """
 
     monthly_data = get_monthly_data()
@@ -809,9 +826,9 @@ def evaluate_forecast_models():
         for month in months
     ]
 
-    # --------------------------------------------------------
-    # EVALUATE INCOME
-    # --------------------------------------------------------
+    # ========================================================
+    # INCOME
+    # ========================================================
 
     income_results = evaluate_series_models(
         income_values,
@@ -819,9 +836,9 @@ def evaluate_forecast_models():
         validation_periods=12,
     )
 
-    # --------------------------------------------------------
-    # EVALUATE EXPENSE
-    # --------------------------------------------------------
+    # ========================================================
+    # EXPENSE
+    # ========================================================
 
     expense_results = evaluate_series_models(
         expense_values,
@@ -834,23 +851,31 @@ def evaluate_forecast_models():
             "months": len(months),
             "training_months": 12,
             "validation_months": 12,
+
             "validation_method": (
-                "Expanding-window one-step-ahead validation"
+                "Expanding-window "
+                "one-step-ahead validation"
             ),
+
             "training_start": str(
                 months[0]
             ),
+
             "training_end": str(
                 months[11]
             ),
+
             "validation_start": str(
                 months[12]
             ),
+
             "validation_end": str(
                 months[23]
             ),
         },
+
         "income": income_results,
+
         "expense": expense_results,
     }
 
@@ -866,12 +891,12 @@ def forecast_series(
     """
     Generate production forecasts.
 
-    Uses the same SARIMA model as the evaluation.
+    The production model is selected from the validation
+    results. For the current dataset, Seasonal-Naive is used
+    because it produced lower validation MAE than SARIMA.
 
-    Safety limits are applied so forecasts do not
-    become unrealistically large or negative.
-
-    If SARIMA fails, Seasonal-Naive is used.
+    Safety limits prevent forecasts from becoming extremely
+    different from the recent historical range.
     """
 
     series = pd.Series(
@@ -883,6 +908,7 @@ def forecast_series(
         return [0.0] * periods
 
     if len(series) < 12:
+
         mean_value = float(
             series.mean()
         )
@@ -892,51 +918,31 @@ def forecast_series(
             for _ in range(periods)
         ]
 
-    # --------------------------------------------------------
-    # HISTORICAL REFERENCE VALUES
-    # --------------------------------------------------------
-
-    last_12 = series.iloc[-12:]
-
-    historical_mean = float(
-        last_12.mean()
-    )
-
-    historical_min = float(
-        last_12.min()
-    )
-
-    historical_max = float(
-        last_12.max()
-    )
-
-    # --------------------------------------------------------
-    # SARIMA
-    # --------------------------------------------------------
-
     try:
-        model = SARIMAX(
+
+        # ====================================================
+        # SEASONAL-NAIVE PRODUCTION FORECAST
+        # ====================================================
+
+        raw_forecast = seasonal_naive_forecast(
             series,
-            order=(1, 0, 0),
-            seasonal_order=(0, 0, 0, 12),
-            trend="c",
-            enforce_stationarity=False,
-            enforce_invertibility=False,
+            periods=periods,
+            seasonal_period=12,
         )
 
-        fitted_model = model.fit(
-            disp=False
+        # ====================================================
+        # HISTORICAL REFERENCE
+        # ====================================================
+
+        last_12 = series.iloc[-12:]
+
+        historical_min = float(
+            last_12.min()
         )
 
-        raw_forecast = fitted_model.forecast(
-            steps=periods
+        historical_max = float(
+            last_12.max()
         )
-
-        result = []
-
-        # ----------------------------------------------------
-        # SAFETY BOUNDARIES
-        # ----------------------------------------------------
 
         lower_limit = (
             historical_min * 0.70
@@ -946,19 +952,27 @@ def forecast_series(
             historical_max * 1.30
         )
 
+        # ====================================================
+        # SAFETY BOUNDARIES
+        # ====================================================
+
+        result = []
+
         for value in raw_forecast:
 
             value = float(value)
 
             if pd.isna(value):
-                value = historical_mean
+                value = float(
+                    last_12.mean()
+                )
 
             value = max(
                 lower_limit,
                 min(
                     value,
                     upper_limit,
-                )
+                ),
             )
 
             result.append(
@@ -968,6 +982,7 @@ def forecast_series(
         return result
 
     except Exception:
+
         return seasonal_naive_forecast(
             series,
             periods=periods,
@@ -986,17 +1001,11 @@ def generate_forecast(
     Generate and save future monthly income
     and expense forecasts.
 
-    The complete historical dataset is used.
+    Historical data:
+        Jan 2024 - Dec 2025
 
-    For the current dataset:
-
-        Historical:
-            Jan 2024 - Dec 2025
-
-        Forecast:
-            Jan 2026 - Dec 2026
-
-    Returns exactly `periods` FinancialForecast objects.
+    Forecast:
+        Jan 2026 - Dec 2026
     """
 
     if periods <= 0:
@@ -1012,17 +1021,17 @@ def generate_forecast(
             "transaction data is required."
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # SORT MONTHS
-    # --------------------------------------------------------
+    # ========================================================
 
     months = sorted(
         monthly_data.keys()
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # INCOME
-    # --------------------------------------------------------
+    # ========================================================
 
     income_values = [
         float(
@@ -1031,9 +1040,9 @@ def generate_forecast(
         for month in months
     ]
 
-    # --------------------------------------------------------
+    # ========================================================
     # EXPENSE
-    # --------------------------------------------------------
+    # ========================================================
 
     expense_values = [
         float(
@@ -1042,9 +1051,9 @@ def generate_forecast(
         for month in months
     ]
 
-    # --------------------------------------------------------
+    # ========================================================
     # FORECAST
-    # --------------------------------------------------------
+    # ========================================================
 
     income_forecast = forecast_series(
         income_values,
@@ -1056,23 +1065,23 @@ def generate_forecast(
         periods,
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # LAST HISTORICAL MONTH
-    # --------------------------------------------------------
+    # ========================================================
 
     last_month = pd.Timestamp(
         months[-1]
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # DELETE OLD FORECASTS
-    # --------------------------------------------------------
+    # ========================================================
 
     FinancialForecast.objects.all().delete()
 
-    # --------------------------------------------------------
+    # ========================================================
     # SAVE NEW FORECASTS
-    # --------------------------------------------------------
+    # ========================================================
 
     forecasts = []
 
@@ -1103,10 +1112,6 @@ def generate_forecast(
             )
         )
 
-        # ----------------------------------------------------
-        # CREATE FORECAST RECORD
-        # ----------------------------------------------------
-
         forecast = FinancialForecast.objects.create(
             forecast_month=forecast_month,
             predicted_income=predicted_income,
@@ -1118,9 +1123,9 @@ def generate_forecast(
             forecast
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # SAFETY CHECK
-    # --------------------------------------------------------
+    # ========================================================
 
     if len(forecasts) != periods:
         raise RuntimeError(
