@@ -1234,3 +1234,102 @@ class AlertAPITests(TestCase):
         )
 
         self.assertEqual(response.status_code, 403)
+
+
+class JournalEntryAPITests(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+
+        self.customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
+
+        self.branch = Branch.objects.create(
+            branch_name="Journal Test Branch",
+            city="Kannur",
+            state="Kerala",
+            ifsc_code="TEST000009",
+            phone="9876543218"
+        )
+
+        self.customer = User.objects.create_user(
+            username="journalcustomer",
+            email="journalcustomer@example.com",
+            password="test-password",
+            role=self.customer_role,
+            branch=self.branch
+        )
+
+        self.client.force_authenticate(user=self.customer)
+
+    def test_customer_cannot_access_journal_entries(self):
+        response = self.client.get("/api/journal-entries/")
+
+        self.assertEqual(response.status_code, 403)
+
+
+class DashboardAPITests(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+
+        self.customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
+
+        self.branch = Branch.objects.create(
+            branch_name="Dashboard Test Branch",
+            city="Kannur",
+            state="Kerala",
+            ifsc_code="TEST000010",
+            phone="9876543219"
+        )
+
+        self.customer = User.objects.create_user(
+            username="dashboardcustomer",
+            email="dashboardcustomer@example.com",
+            password="test-password",
+            role=self.customer_role,
+            branch=self.branch
+        )
+
+        self.client.force_authenticate(user=self.customer)
+
+    def test_customer_cannot_access_dashboard(self):
+        response = self.client.get("/api/dashboard/")
+
+        self.assertEqual(response.status_code, 403)
+
+
+class GeminiReportAPITests(TestCase):
+
+    def setUp(self):
+        self.client = APIClient()
+
+        self.customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
+
+        self.branch = Branch.objects.create(
+            branch_name="Gemini Test Branch",
+            city="Kannur",
+            state="Kerala",
+            ifsc_code="TEST000011",
+            phone="9876543220"
+        )
+
+        self.customer = User.objects.create_user(
+            username="geminicustomer",
+            email="geminicustomer@example.com",
+            password="test-password",
+            role=self.customer_role,
+            branch=self.branch
+        )
+
+        self.client.force_authenticate(user=self.customer)
+
+    def test_customer_cannot_access_gemini_report(self):
+        response = self.client.get("/api/report/")
+
+        self.assertEqual(response.status_code, 403)
