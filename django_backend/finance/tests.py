@@ -15,6 +15,7 @@ from .models import (
     Transaction,
     FinancialForecast,
     Alert,
+    AuditLog,
 )
 
 
@@ -352,12 +353,18 @@ class UserAPITests(TestCase):
     def setUp(self):
         self.client = APIClient()
 
+        # ------------------------------------------------------
         # Create Admin role
+        # ------------------------------------------------------
+
         self.role, _ = Role.objects.get_or_create(
             role_name="Admin"
         )
 
+        # ------------------------------------------------------
         # Create test branch
+        # ------------------------------------------------------
+
         self.branch = Branch.objects.create(
             branch_name="API Test Branch",
             city="Kochi",
@@ -366,7 +373,10 @@ class UserAPITests(TestCase):
             phone="9876543212",
         )
 
+        # ------------------------------------------------------
         # Create Admin user
+        # ------------------------------------------------------
+
         self.user = User.objects.create_user(
             username="apiuser",
             email="api@example.com",
@@ -379,6 +389,237 @@ class UserAPITests(TestCase):
             user=self.user
         )
 
+    # ========================================================
+    # MANAGER SECURITY TESTS
+    # ========================================================
+
+    def test_manager_cannot_change_user_role_or_branch(self):
+        """Manager cannot change another user's role or branch."""
+
+        manager_role, _ = Role.objects.get_or_create(
+            role_name="Manager"
+        )
+
+        customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
+
+        # Manager
+        manager = User.objects.create_user(
+            username="manager_test",
+            email="manager@test.com",
+            password="test-password",
+            role=manager_role,
+            branch=self.branch,
+        )
+
+        # Target user in manager's branch
+        target_user = User.objects.create_user(
+            username="target_test",
+            email="target@test.com",
+            password="test-password",
+            role=customer_role,
+            branch=self.branch,
+        )
+
+        # Another branch
+        another_branch = Branch.objects.create(
+            branch_name="Another Branch",
+            city="Calicut",
+            state="Kerala",
+            ifsc_code="TEST000004",
+            phone="9876543213",
+        )
+
+        self.client.force_authenticate(
+            user=manager
+        )
+
+        response = self.client.patch(
+            f"/api/users/{target_user.user_id}/",
+            {
+                "role": manager_role.pk,
+                "branch": another_branch.pk,
+            },
+            format="json",
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        # Refresh target user
+        target_user.refresh_from_db()
+
+        # Role must remain Customer
+        self.assertEqual(
+            target_user.role,
+            customer_role,
+        )
+
+        # Branch must remain original branch
+        self.assertEqual(
+            target_user.branch,
+            self.branch,
+        )
+
+    # ========================================================
+
+    def test_manager_cannot_modify_user_from_another_branch(self):
+        """Manager cannot modify a user from another branch."""
+
+        manager_role, _ = Role.objects.get_or_create(
+            role_name="Manager"
+        )
+
+        customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
+
+        # Another branch
+        another_branch = Branch.objects.create(
+            branch_name="Another Branch 2",
+            city="Calicut",
+            state="Kerala",
+            ifsc_code="TEST000005",
+            phone="9876543214",
+        )
+
+        # Manager in original branch
+        manager = User.objects.create_user(
+            username="manager_test_2",
+            email="manager2@test.com",
+            password="test-password",
+            role=manager_role,
+            branch=self.branch,
+        )
+
+        # User in another branch
+        target_user = User.objects.create_user(
+            username="other_branch_user",
+            email="otherbranch@test.com",
+            password="test-password",
+            role=customer_role,
+            branch=another_branch,
+        )
+
+        self.client.force_authenticate(
+            user=manager
+        )
+
+        response = self.client.patch(
+            f"/api/users/{target_user.user_id}/",
+            {
+                "email": "changed@test.com"
+            },
+            format="json",
+        )
+
+        # Manager should not even find another-branch user
+        self.assertEqual(
+            response.status_code,
+            404,
+        )
+
+    # ========================================================
+    # EXISTING ADMIN TESTS
+    # ========================================================
+
+    def test_user_list_api(self):
+        """GET /api/users/ returns users."""
+
+        response = self.client.get(
+            "/api/users/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        if isinstance(response.data, dict):
+            self.assertIn(
+                "results",
+                response.data,
+            )
+            users = response.data["results"]
+        else:
+            users = response.data
+
+        self.assertGreaterEqual(
+            len(users),
+            1,
+        )
+
+    # ========================================================
+
+    def test_password_hash_never_returned(self):
+        """Password hashes must never be exposed through the API."""
+
+        response = self.client.get(
+            "/api/users/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        if isinstance(response.data, dict):
+            users = response.data.get(
+                "results",
+                []
+            )
+        else:
+            users = response.data
+
+        self.assertGreaterEqual(
+            len(users),
+            1,
+        )
+
+        for user_data in users:
+
+            self.assertNotIn(
+                "password_hash",
+                user_data,
+            )
+
+            self.assertNotIn(
+                "password",
+                user_data,
+            )
+
+    # ========================================================
+
+    def test_customer_cannot_access_user_list(self):
+        """Customer cannot access the Users API."""
+
+        customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
+
+        customer = User.objects.create_user(
+            username="userapicustomer",
+            email="userapicustomer@example.com",
+            password="test-password",
+            role=customer_role,
+            branch=self.branch,
+        )
+
+        self.client.force_authenticate(
+            user=customer
+        )
+
+        response = self.client.get(
+            "/api/users/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
     # --------------------------------------------------------
     # ADMIN USER API TESTS
     # --------------------------------------------------------
@@ -1213,38 +1454,213 @@ class FinancialForecastAPITests(TestCase):
         )
 
 
+# ============================================================
+# AUDIT LOG API TESTS
+# ============================================================
+
 class AuditLogAPITests(TestCase):
+    """Tests for AuditLog API branch isolation."""
 
     def setUp(self):
         self.client = APIClient()
 
-        self.customer_role, _ = Role.objects.get_or_create(
-            role_name="Customer"
+        # ------------------------------------------------------
+        # Roles
+        # ------------------------------------------------------
+
+        self.admin_role, _ = Role.objects.get_or_create(
+            role_name="Admin"
         )
+
+        self.manager_role, _ = Role.objects.get_or_create(
+            role_name="Manager"
+        )
+
+        # ------------------------------------------------------
+        # Branches
+        # ------------------------------------------------------
 
         self.branch = Branch.objects.create(
             branch_name="Audit Test Branch",
-            city="Kannur",
+            city="Kochi",
             state="Kerala",
-            ifsc_code="TEST000007",
-            phone="9876543216"
+            ifsc_code="AUDIT0001",
+            phone="9876543215",
         )
 
-        self.customer = User.objects.create_user(
-            username="auditcustomer",
-            email="auditcustomer@example.com",
+        self.other_branch = Branch.objects.create(
+            branch_name="Audit Other Branch",
+            city="Calicut",
+            state="Kerala",
+            ifsc_code="AUDIT0002",
+            phone="9876543216",
+        )
+
+        # ------------------------------------------------------
+        # Admin
+        # ------------------------------------------------------
+
+        self.admin = User.objects.create_user(
+            username="audit_admin",
+            email="auditadmin@test.com",
             password="test-password",
-            role=self.customer_role,
-            branch=self.branch
+            role=self.admin_role,
+            branch=self.branch,
         )
 
-        self.client.force_authenticate(user=self.customer)
+        # ------------------------------------------------------
+        # Manager
+        # ------------------------------------------------------
+
+        self.manager = User.objects.create_user(
+            username="audit_manager",
+            email="auditmanager@test.com",
+            password="test-password",
+            role=self.manager_role,
+            branch=self.branch,
+        )
+
+        # ------------------------------------------------------
+        # Users from different branches
+        # ------------------------------------------------------
+
+        self.branch_user = User.objects.create_user(
+            username="branch_user",
+            email="branchuser@test.com",
+            password="test-password",
+            role=self.manager_role,
+            branch=self.branch,
+        )
+
+        self.other_branch_user = User.objects.create_user(
+            username="other_branch_user",
+            email="otherbranchuser@test.com",
+            password="test-password",
+            role=self.manager_role,
+            branch=self.other_branch,
+        )
+
+    # ========================================================
+    # ADMIN CAN SEE ALL LOGS
+    # ========================================================
+
+    def test_admin_can_see_all_audit_logs(self):
+        """Admin can see audit logs from all branches."""
+
+        AuditLog.objects.create(
+            user=self.branch_user,
+            action="Branch user action",
+            log_time=timezone.now(),
+        )
+
+        AuditLog.objects.create(
+            user=self.other_branch_user,
+            action="Other branch action",
+            log_time=timezone.now(),
+        )
+
+        self.client.force_authenticate(
+            user=self.admin
+        )
+
+        response = self.client.get(
+            "/api/audit-logs/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        if isinstance(response.data, dict):
+            logs = response.data.get(
+                "results",
+                []
+            )
+        else:
+            logs = response.data
+
+        self.assertEqual(
+            len(logs),
+            2,
+        )
+
+    # ========================================================
+    # MANAGER SEES ONLY OWN BRANCH
+    # ========================================================
+
+    def test_manager_sees_only_own_branch_audit_logs(self):
+        """Manager cannot see audit logs from another branch."""
+
+        AuditLog.objects.create(
+            user=self.branch_user,
+            action="Own branch action",
+            log_time=timezone.now(),
+        )
+
+        AuditLog.objects.create(
+            user=self.other_branch_user,
+            action="Other branch action",
+            log_time=timezone.now(),
+        )
+
+        self.client.force_authenticate(
+            user=self.manager
+        )
+
+        response = self.client.get(
+            "/api/audit-logs/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+        )
+
+        if isinstance(response.data, dict):
+            logs = response.data.get(
+                "results",
+                []
+            )
+        else:
+            logs = response.data
+
+        self.assertEqual(
+            len(logs),
+            1,
+        )
+
+    # ========================================================
+    # CUSTOMER CANNOT ACCESS
+    # ========================================================
 
     def test_customer_cannot_access_audit_logs(self):
-        response = self.client.get("/api/audit-logs/")
+        """Customer cannot access audit logs."""
 
-        self.assertEqual(response.status_code, 403)
+        customer_role, _ = Role.objects.get_or_create(
+            role_name="Customer"
+        )
 
+        customer = User.objects.create_user(
+            username="audit_customer",
+            email="auditcustomer@test.com",
+            password="test-password",
+            role=customer_role,
+            branch=self.branch,
+        )
+
+        self.client.force_authenticate(
+            user=customer
+        )
+
+        response = self.client.get(
+            "/api/audit-logs/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            403,
+        )
 
 class AlertAPITests(TestCase):
 
