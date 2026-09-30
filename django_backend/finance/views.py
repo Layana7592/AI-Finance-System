@@ -128,37 +128,29 @@ class TransactionViewSet(viewsets.ModelViewSet):
 # ============================================================
 
 class FraudPredictionViewSet(viewsets.ModelViewSet):
-    queryset = FraudPrediction.objects.all().order_by("-prediction_id")
+    queryset = FraudPrediction.objects.all()
     serializer_class = FraudPredictionSerializer
     permission_classes = [IsAdminManagerOrAnalyst]
 
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="evaluate",
-        permission_classes = [IsAdminManagerOrAnalyst],
-    )
-    def evaluate(self, request):
-        """
-        Evaluate Statistical Baseline and Isolation Forest.
-        Metrics are calculated by Python.
-        """
-        try:
-            results = evaluate_fraud_models()
+    def get_queryset(self):
+        user = self.request.user
 
-            return Response(
-                results,
-                status=status.HTTP_200_OK,
+        if user.role.role_name == "Admin":
+            return FraudPrediction.objects.all().order_by(
+                "-prediction_id"
             )
 
-        except Exception as exc:
-            return Response(
-                {
-                    "error": "Fraud model evaluation failed.",
-                    "detail": str(exc),
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        if user.role.role_name == "Manager":
+            return FraudPrediction.objects.filter(
+                transaction__account__user__branch=user.branch
+            ).order_by("-prediction_id")
+
+        if user.role.role_name == "Analyst":
+            return FraudPrediction.objects.all().order_by(
+                "-prediction_id"
             )
+
+        return FraudPrediction.objects.none()        
 ## ============================================================
 # FINANCIAL FORECAST
 # ============================================================

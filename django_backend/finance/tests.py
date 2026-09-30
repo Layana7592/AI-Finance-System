@@ -583,6 +583,137 @@ class AccountAPITests(TestCase):
             [403, 404]
         )
 
+
+    # --------------------------------------------------------
+    # MANAGER BRANCH ISOLATION TESTS
+    # --------------------------------------------------------
+
+    def test_manager_cannot_list_other_branch_accounts(self):
+        """Manager should only see accounts in their own branch."""
+
+        manager_role, _ = Role.objects.get_or_create(
+            role_name="Manager"
+        )
+
+        other_branch = Branch.objects.create(
+            branch_name="Other Account Branch",
+            city="Kochi",
+            state="Kerala",
+            ifsc_code="TEST000099",
+            phone="9876543212",
+        )
+
+        other_customer = User.objects.create_user(
+            username="otherbranchcustomer",
+            email="otherbranchcustomer@example.com",
+            password="test-password",
+            role=self.role,
+            branch=other_branch,
+        )
+
+        other_account = Account.objects.create(
+            account_number="OTHERACC001",
+            account_type="Savings",
+            balance=Decimal("15000.00"),
+            created_at=timezone.now(),
+            user=other_customer,
+        )
+
+        manager = User.objects.create_user(
+            username="accountmanager",
+            email="accountmanager@example.com",
+            password="test-password",
+            role=manager_role,
+            branch=self.branch,
+        )
+
+        self.client.force_authenticate(
+            user=manager
+        )
+
+        response = self.client.get(
+            "/api/accounts/"
+        )
+
+        self.assertEqual(
+            response.status_code,
+            200,
+            f"Unexpected response: {response.data}",
+        )
+
+        if isinstance(response.data, dict):
+            accounts = response.data.get(
+                "results",
+                []
+            )
+        else:
+            accounts = response.data
+
+        account_ids = [
+            account["account_id"]
+            for account in accounts
+        ]
+
+        self.assertNotIn(
+            other_account.account_id,
+            account_ids,
+            "Manager can see an account from another branch.",
+        )
+
+    def test_manager_cannot_retrieve_other_branch_account(self):
+        """Manager cannot retrieve another branch's account by ID."""
+
+        manager_role, _ = Role.objects.get_or_create(
+            role_name="Manager"
+        )
+
+        other_branch = Branch.objects.create(
+            branch_name="Another Account Branch",
+            city="Kochi",
+            state="Kerala",
+            ifsc_code="TEST000098",
+            phone="9876543213",
+        )
+
+        other_customer = User.objects.create_user(
+            username="anotherbranchcustomer",
+            email="anotherbranchcustomer@example.com",
+            password="test-password",
+            role=self.role,
+            branch=other_branch,
+        )
+
+        other_account = Account.objects.create(
+            account_number="OTHERACC002",
+            account_type="Savings",
+            balance=Decimal("20000.00"),
+            created_at=timezone.now(),
+            user=other_customer,
+        )
+
+        manager = User.objects.create_user(
+            username="anotheraccountmanager",
+            email="anotheraccountmanager@example.com",
+            password="test-password",
+            role=manager_role,
+            branch=self.branch,
+        )
+
+        self.client.force_authenticate(
+            user=manager
+        )
+
+        response = self.client.get(
+            f"/api/accounts/{other_account.account_id}/"
+        )
+
+        self.assertIn(
+            response.status_code,
+            [403, 404],
+            "Manager accessed an account from another branch.",
+        )
+
+
 # ============================================================
 # MIGRATION TESTS
 # ============================================================

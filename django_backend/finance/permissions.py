@@ -1,146 +1,89 @@
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
 
+def get_user_role(request):
+    """Return the authenticated user's role name safely."""
+    user = request.user
+
+    if not user or not user.is_authenticated:
+        return None
+
+    role = getattr(user, "role", None)
+
+    if role is None:
+        return None
+
+    return role.role_name
+
+
 class IsAuthenticatedUser(IsAuthenticated):
-    """
-    Allows access only to authenticated Django users.
-    """
+    """Allow authenticated users only."""
     pass
 
 
 class IsAdmin(BasePermission):
-    """
-    Allows access only to users with the Admin role.
-    """
-
     def has_permission(self, request, view):
-        return (
-            request.user
-            and request.user.is_authenticated
-            and request.user.role.role_name == "Admin"
-        )
+        return get_user_role(request) == "Admin"
 
 
 class IsManager(BasePermission):
-    """
-    Allows access only to users with the Manager role.
-    """
-
     def has_permission(self, request, view):
-        return (
-            request.user
-            and request.user.is_authenticated
-            and request.user.role.role_name == "Manager"
-        )
+        return get_user_role(request) == "Manager"
 
 
 class IsAnalyst(BasePermission):
-    """
-    Allows access only to users with the Analyst role.
-    """
-
     def has_permission(self, request, view):
-        return (
-            request.user
-            and request.user.is_authenticated
-            and request.user.role.role_name == "Analyst"
-        )
-
-
-class IsAdminManagerOrAnalyst(BasePermission):
-    """
-    Allows access to Admin, Manager, and Analyst users.
-    """
-
-    def has_permission(self, request, view):
-        return (
-            request.user
-            and request.user.is_authenticated
-            and request.user.role.role_name in [
-                "Admin",
-                "Manager",
-                "Analyst",
-            ]
-        )
-    
-
-class IsAdminOrManager(BasePermission):
-    """
-    Allows access to Admin and Manager users.
-    """
-
-    def has_permission(self, request, view):
-        return (
-            request.user
-            and request.user.is_authenticated
-            and request.user.role.role_name in ["Admin", "Manager"]
-        )
+        return get_user_role(request) == "Analyst"
 
 
 class IsCustomer(BasePermission):
-    """ 
-    Allows access only to users with the Customer role.
-    """
-
     def has_permission(self, request, view):
-        return (
-            request.user
-            and request.user.is_authenticated
-            and request.user.role.role_name == "Customer"
-        )
+        return get_user_role(request) == "Customer"
+
+
+class IsAdminOrManager(BasePermission):
+    def has_permission(self, request, view):
+        return get_user_role(request) in ["Admin", "Manager"]
+
+
+class IsAdminManagerOrAnalyst(BasePermission):
+    def has_permission(self, request, view):
+        return get_user_role(request) in [
+            "Admin",
+            "Manager",
+            "Analyst",
+        ]
 
 
 class IsAdminManagerOrCustomer(BasePermission):
-    """
-    Allows access to authenticated Admin, Manager, or Customer users.
-    """
-
     def has_permission(self, request, view):
-        return (
-            request.user
-            and request.user.is_authenticated
-            and request.user.role.role_name in [
-                "Admin",
-                "Manager",
-                "Customer",
-            ]
-        )
+        return get_user_role(request) in [
+            "Admin",
+            "Manager",
+            "Customer",
+        ]
 
 
 class IsAdminOrManagerForWrite(IsAuthenticated):
     """
-    Allows authenticated users to read.
-    Only Admin and Manager can modify data.
+    Authenticated users can read.
+    Only Admin and Manager can modify.
+    Object and queryset restrictions must also be enforced.
     """
 
     def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
+        if not super().has_permission(request, view):
             return False
 
         if request.method in ["GET", "HEAD", "OPTIONS"]:
             return True
 
-        return request.user.role.role_name in [
-            "Admin",
-            "Manager",
-        ]
+        return get_user_role(request) in ["Admin", "Manager"]
 
 
-class IsAdminOrManagerForWriteAlerts(IsAuthenticated):
+class IsAdminOrManagerForWriteAlerts(IsAdminOrManagerForWrite):
     """
     Authenticated users can read alerts.
-    Only Admin and Manager can create, update, or delete alerts.
+    Only Admin and Manager can modify alerts.
     """
-
-    def has_permission(self, request, view):
-        if not request.user or not request.user.is_authenticated:
-            return False
-
-        if request.method in ["GET", "HEAD", "OPTIONS"]:
-            return True
-
-        return request.user.role.role_name in [
-            "Admin",
-            "Manager",
-        ]
-
+    pass

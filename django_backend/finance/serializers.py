@@ -99,26 +99,34 @@ class UserCreateSerializer(serializers.ModelSerializer):
         return user
 
 
-# ==================================================
-# ACCOUNT
-# ==================================================
+from rest_framework import serializers
+from django.utils import timezone
+
+from .models import Account, Transaction
+
 
 class AccountSerializer(serializers.ModelSerializer):
+
+    account_id = serializers.IntegerField(read_only=True)
+    balance = serializers.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        read_only=True
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+
     class Meta:
         model = Account
-        fields = "__all__"
+        fields = [
+            "account_id",
+            "user",
+            "account_number",
+            "account_type",
+            "balance",
+            "created_at",
+        ]
 
-
-# ==================================================
-# TRANSACTION
-# ==================================================
-
-class TransactionSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Transaction
-        fields = "__all__"
-
-    def validate_account(self, account):
+    def validate_user(self, value):
         request = self.context.get("request")
 
         if not request or not request.user.is_authenticated:
@@ -134,26 +142,83 @@ class TransactionSerializer(serializers.ModelSerializer):
         )
 
         if role == "Admin":
-            return account
+            return value
 
         if role == "Manager":
-            if account.user.branch_id != user.branch_id:
+            if value.branch_id != user.branch_id:
                 raise serializers.ValidationError(
-                    "You can access only accounts in your branch."
+                    "You can only create accounts for users "
+                    "in your own branch."
                 )
-            return account
-
-        if role == "Customer":
-            if account.user_id != user.user_id:
-                raise serializers.ValidationError(
-                    "You can access only your own account."
-                )
-            return account
+            return value
 
         raise serializers.ValidationError(
-            "You do not have permission to use this account."
+            "You are not allowed to create accounts."
         )
 
+    def create(self, validated_data):
+        validated_data["balance"] = 0
+        validated_data["created_at"] = timezone.now()
+
+        return super().create(validated_data)
+
+
+class TransactionSerializer(serializers.ModelSerializer):
+
+    transaction_id = serializers.IntegerField(read_only=True)
+    is_anomaly = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model = Transaction
+        fields = [
+            "transaction_id",
+            "account",
+            "amount",
+            "transaction_type",
+            "merchant",
+            "location",
+            "transaction_time",
+            "status",
+            "is_anomaly",
+        ]
+
+    def validate_account(self, value):
+        request = self.context.get("request")
+
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError(
+                "Authentication is required."
+            )
+
+        user = request.user
+        role = getattr(
+            getattr(user, "role", None),
+            "role_name",
+            None
+        )
+
+        if role == "Admin":
+            return value
+
+        if role == "Manager":
+            if value.user.branch_id != user.branch_id:
+                raise serializers.ValidationError(
+                    "You can only access accounts "
+                    "in your own branch."
+                )
+            return value
+
+        raise serializers.ValidationError(
+            "You are not allowed to create transactions."
+        )
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "Transaction amount must be greater than zero."
+            )
+
+        return value
 # ==================================================
 # FRAUD PREDICTION
 # ==================================================
