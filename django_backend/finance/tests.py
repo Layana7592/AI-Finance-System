@@ -1283,7 +1283,7 @@ class ForecastGenerationTests(TestCase):
         )
 
         client.force_authenticate(
-            user=user
+            user=user 
         )
 
         response = client.post(
@@ -1294,7 +1294,7 @@ class ForecastGenerationTests(TestCase):
 
         self.assertEqual(
             response.status_code,
-            200,
+            201,
             f"Forecast API returned "
             f"{response.status_code}: "
             f"{response.data}"

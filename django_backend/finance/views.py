@@ -197,39 +197,12 @@ class FraudPredictionViewSet(viewsets.ModelViewSet):
 # ============================================================
 
 class FinancialForecastViewSet(viewsets.ModelViewSet):
-    queryset = FinancialForecast.objects.all().order_by(
-        "forecast_month"
-    )
+
+    queryset = FinancialForecast.objects.all().order_by("forecast_month")
     serializer_class = FinancialForecastSerializer
     permission_classes = [IsAdminManagerOrAnalyst]
 
-    @action(
-        detail=False,
-        methods=["get"],
-        url_path="evaluate",
-        permission_classes=[IsAdminManagerOrAnalyst],
-    )
-    def evaluate(self, request):
-        """
-        Compare Seasonal-Naive and SARIMA using
-        chronological validation.
-        """
-        try:
-            results = evaluate_forecast_models()
-
-            return Response(
-                results,
-                status=status.HTTP_200_OK,
-            )
-
-        except Exception as exc:
-            return Response(
-                {
-                    "error": "Forecast model evaluation failed.",
-                    "detail": str(exc),
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+    # other methods...
 
     @action(
         detail=False,
@@ -237,11 +210,10 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
         url_path="generate",
         permission_classes=[IsAdminOrManager],
     )
+
     def generate(self, request):
         """
-        Generate future financial forecasts.
-        The forecast service may return Django model objects.
-        These are serialized before being returned by the API.
+        Generate and save future financial forecasts.
         """
 
         horizon = request.data.get("horizon", 12)
@@ -251,47 +223,52 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
 
             if horizon <= 0:
                 return Response(
-                    {
-                        "error": "Horizon must be greater than zero."
-                    },
+                    {"error": "Horizon must be greater than zero."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
         except (TypeError, ValueError):
             return Response(
-                {
-                    "error": "Horizon must be an integer."
-                },
+                {"error": "Horizon must be an integer."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         try:
+            from django.utils import timezone
             from .services.forecast_service import generate_forecast
 
             forecasts = generate_forecast(horizon)
 
-            if isinstance(forecasts, FinancialForecast):
-                serializer = self.get_serializer(forecasts)
-
+            if not forecasts:
                 return Response(
-                    serializer.data,
-                    status=status.HTTP_200_OK,
+                    {"error": "No forecast data available."},
+                    status=status.HTTP_404_NOT_FOUND,
                 )
 
-            if isinstance(forecasts, (list, tuple)):
-                serializer = self.get_serializer(
-                    forecasts,
-                    many=True,
-                )
+            FinancialForecast.objects.all().delete()
 
-                return Response(
-                    serializer.data,
-                    status=status.HTTP_200_OK,
+            forecast_objects = [
+                FinancialForecast(
+                    forecast_month=item["forecast_month"],
+                    predicted_income=item["predicted_income"],
+                    predicted_expense=item["predicted_expense"],
+                    generated_at=timezone.now(),
                 )
+                for item in forecasts
+            ]
+
+            saved_forecasts = FinancialForecast.objects.bulk_create(
+                forecast_objects
+            )
+
+            serializer = self.get_serializer(
+                saved_forecasts,
+                many=True,
+            )
 
             return Response(
-                forecasts,
-                status=status.HTTP_200_OK,
+                serializer.data,
+                status=status.HTTP_201_CREATED,
             )
 
         except Exception as exc:
