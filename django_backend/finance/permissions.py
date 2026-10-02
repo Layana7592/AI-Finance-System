@@ -68,7 +68,6 @@ class IsAdminOrManagerForWrite(IsAuthenticated):
     """
     Authenticated users can read.
     Only Admin and Manager can modify.
-    Object and queryset restrictions must also be enforced.
     """
 
     def has_permission(self, request, view):

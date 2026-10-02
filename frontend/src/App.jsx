@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+
 import {
   ResponsiveContainer,
   LineChart,
@@ -15,7 +16,10 @@ import {
 import "./App.css";
 
 const API_BASE_URL = "http://127.0.0.1:8000/api";
-const API_TOKEN = localStorage.getItem("finance_api_token");
+
+function getApiToken() {
+  return localStorage.getItem("finance_api_token");
+}
 
 const INR = new Intl.NumberFormat("en-IN", {
   style: "currency",
@@ -53,27 +57,10 @@ function formatPercent(value) {
   return `${numberOrZero(value).toFixed(2)}%`;
 }
 
-/*
- * IMPORTANT:
- * The dashboard API returns anomaly_percentage as 1.0,
- * meaning 1%.
- *
- * Do NOT multiply this value by 100.
- */
 function normalizePercentage(value) {
   return numberOrZero(value);
 }
 
-/*
- * Model metrics from the API are decimal fractions:
- *
- * 1.0 -> 1%
- * 0.788  -> 78.8%
- * 0.884  -> 88.4%
- * 0.8966 -> 89.66%
- *
- * Therefore model metrics DO need conversion.
- */
 function normalizeMetric(value) {
   const number = numberOrZero(value);
 
@@ -200,14 +187,12 @@ function extractHistoricalData(payload) {
     root?.historical,
     root?.historical_data,
     root?.trends,
-
     payload?.monthly_trends,
     payload?.monthly_data,
     payload?.monthly,
     payload?.historical,
     payload?.historical_data,
     payload?.trends,
-
     root?.data?.monthly_trends,
     root?.data?.monthly_data,
     root?.data?.historical,
@@ -225,36 +210,18 @@ function extractHistoricalData(payload) {
   return [];
 }
 
-/*
- * IMPORTANT FIX:
- *
- * The actual dashboard API returns:
- *
- * "forecasts": [
- *   {
- *     "month": "2026-01",
- *     "predicted_income": ...,
- *     "predicted_expense": ...
- *   }
- * ]
- *
- * So forecasts MUST be checked first.
- */
 function extractForecastData(payload) {
   const root = payload?.data ?? payload ?? {};
 
   const candidates = [
     root?.forecasts,
-
     root?.forecast,
     root?.forecast_data,
     root?.monthly_forecast,
     root?.forecast_monthly,
-
     root?.data?.forecasts,
     root?.data?.forecast,
     root?.data?.forecast_data,
-
     payload?.forecasts,
     payload?.forecast,
     payload?.forecast_data,
@@ -325,13 +292,41 @@ function extractDashboard(payload) {
     root?.isolation ??
     {};
 
-  return {
-    /*
-     * -----------------------------
-     * SUMMARY
-     * -----------------------------
-     */
+  const getForecastModels = (modelData) => {
+    const seasonalNaive = modelData?.models?.seasonal_naive ?? {};
+    const sarima = modelData?.models?.sarima ?? {};
 
+    const seasonalNaiveMae = numberOrZero(seasonalNaive?.mae);
+    const sarimaMae = numberOrZero(sarima?.mae);
+
+    let bestModel = firstDefined(
+      modelData?.best_model,
+      modelData?.bestModel
+    );
+
+    if (!bestModel && seasonalNaiveMae > 0 && sarimaMae > 0) {
+      bestModel =
+        seasonalNaiveMae <= sarimaMae
+          ? "Seasonal-Naive"
+          : "SARIMA";
+    }
+
+    return {
+      bestModel: bestModel || "Not specified",
+      seasonalNaive: {
+        mae: seasonalNaiveMae,
+        rmse: numberOrZero(seasonalNaive?.rmse),
+        mape: numberOrZero(seasonalNaive?.mape),
+      },
+      sarima: {
+        mae: sarimaMae,
+        rmse: numberOrZero(sarima?.rmse),
+        mape: numberOrZero(sarima?.mape),
+      },
+    };
+  };
+
+  return {
     totalTransactions: numberOrZero(
       firstDefined(
         root?.total_transactions,
@@ -350,11 +345,6 @@ function extractDashboard(payload) {
       )
     ),
 
-    /*
-     * IMPORTANT:
-     * API gives anomaly_percentage = 1.0
-     * and that means 1%.
-     */
     anomalyPercentage: normalizePercentage(
       firstDefined(
         root?.anomaly_percentage,
@@ -379,26 +369,10 @@ function extractDashboard(payload) {
       )
     ),
 
-    /*
-     * -----------------------------
-     * SYSTEM INFORMATION
-     * -----------------------------
-     *
-     * Actual API structure:
-     *
-     * "system_info": {
-     *   "historical_months": 24,
-     *   "training_months": 12,
-     *   "validation_months": 12,
-     *   "forecast_horizon": 12
-     * }
-     */
-
     historicalMonths: numberOrZero(
       firstDefined(
         systemInfo?.historical_months,
         systemInfo?.historicalMonths,
-
         root?.historical_months,
         forecast?.months,
         forecast?.historical_months,
@@ -410,7 +384,6 @@ function extractDashboard(payload) {
       firstDefined(
         systemInfo?.training_months,
         systemInfo?.trainingMonths,
-
         root?.training_months,
         forecast?.training_months
       )
@@ -420,7 +393,6 @@ function extractDashboard(payload) {
       firstDefined(
         systemInfo?.validation_months,
         systemInfo?.validationMonths,
-
         root?.validation_months,
         forecast?.validation_months
       )
@@ -430,17 +402,10 @@ function extractDashboard(payload) {
       firstDefined(
         systemInfo?.forecast_horizon,
         systemInfo?.forecastHorizon,
-
         root?.forecast_horizon,
         forecast?.forecast_horizon
       )
     ),
-
-    /*
-     * -----------------------------
-     * STATISTICAL BASELINE
-     * -----------------------------
-     */
 
     statistical: {
       precision: normalizeMetric(
@@ -468,14 +433,11 @@ function extractDashboard(payload) {
       confusionMatrix:
         statistical?.confusion_matrix ??
         statistical?.confusionMatrix ??
-        [[0, 0], [0, 0]],
+        [
+          [0, 0],
+          [0, 0],
+        ],
     },
-
-    /*
-     * -----------------------------
-     * ISOLATION FOREST
-     * -----------------------------
-     */
 
     isolation: {
       precision: normalizeMetric(
@@ -503,106 +465,49 @@ function extractDashboard(payload) {
       confusionMatrix:
         isolation?.confusion_matrix ??
         isolation?.confusionMatrix ??
-        [[0, 0], [0, 0]],
+        [
+          [0, 0],
+          [0, 0],
+        ],
     },
 
-    /*
-     * -----------------------------
-     * INCOME FORECAST EVALUATION
-     * -----------------------------
-     */
-
-    incomeForecast: {
-      bestModel: firstDefined(
-        incomeForecast?.best_model,
-        incomeForecast?.bestModel,
-        "Seasonal-Naive"
-      ),
-
-      mae: numberOrZero(
-        incomeForecast?.seasonal_naive?.mae
-      ),
-
-      rmse: numberOrZero(
-        incomeForecast?.seasonal_naive?.rmse
-      ),
-
-      mape: numberOrZero(
-        incomeForecast?.seasonal_naive?.mape
-      ),
-
-      sarima: {
-        mae: numberOrZero(
-          incomeForecast?.sarima?.mae
-        ),
-
-        rmse: numberOrZero(
-          incomeForecast?.sarima?.rmse
-        ),
-
-        mape: numberOrZero(
-          incomeForecast?.sarima?.mape
-        ),
-      },
-    },
-
-    /*
-     * -----------------------------
-     * EXPENSE FORECAST EVALUATION
-     * -----------------------------
-     */
-
-    expenseForecast: {
-      bestModel: firstDefined(
-        expenseForecast?.best_model,
-        expenseForecast?.bestModel,
-        "Seasonal-Naive"
-      ),
-
-      mae: numberOrZero(
-        expenseForecast?.seasonal_naive?.mae
-      ),
-
-      rmse: numberOrZero(
-        expenseForecast?.seasonal_naive?.rmse
-      ),
-
-      mape: numberOrZero(
-        expenseForecast?.seasonal_naive?.mape
-      ),
-
-      sarima: {
-        mae: numberOrZero(
-          expenseForecast?.sarima?.mae
-        ),
-
-        rmse: numberOrZero(
-          expenseForecast?.sarima?.rmse
-        ),
-
-        mape: numberOrZero(
-          expenseForecast?.sarima?.mape
-        ),
-      },
-    },
+    incomeForecast: getForecastModels(incomeForecast),
+    expenseForecast: getForecastModels(expenseForecast),
   };
 }
 
 async function fetchJSON(url, options = {}) {
+  const token = getApiToken();
+
   const response = await fetch(url, {
     ...options,
+
     headers: {
       Accept: "application/json",
-      ...(API_TOKEN
-        ? { Authorization: `Token ${API_TOKEN}` }
+
+      ...(token
+        ? {
+            Authorization: `Token ${token}`,
+          }
         : {}),
+
       ...(options.headers || {}),
     },
   });
 
   if (!response.ok) {
+    let detail = "";
+
+    try {
+      const errorPayload = await response.json();
+      detail = errorPayload?.detail || "";
+    } catch {
+      // Response was not JSON.
+    }
+
     const error = new Error(
-      `Request failed with status ${response.status}`
+      detail ||
+        `Request failed with status ${response.status}`
     );
 
     error.status = response.status;
@@ -713,10 +618,7 @@ function ModelMetricCard({
   );
 }
 
-function ConfusionMatrix({
-  title,
-  matrix,
-}) {
+function ConfusionMatrix({ title, matrix }) {
   const safeMatrix =
     Array.isArray(matrix) &&
     matrix.length >= 2 &&
@@ -730,21 +632,10 @@ function ConfusionMatrix({
           [0, 0],
         ];
 
-  const tn = numberOrZero(
-    safeMatrix[0][0]
-  );
-
-  const fp = numberOrZero(
-    safeMatrix[0][1]
-  );
-
-  const fn = numberOrZero(
-    safeMatrix[1][0]
-  );
-
-  const tp = numberOrZero(
-    safeMatrix[1][1]
-  );
+  const tn = numberOrZero(safeMatrix[0][0]);
+  const fp = numberOrZero(safeMatrix[0][1]);
+  const fn = numberOrZero(safeMatrix[1][0]);
+  const tp = numberOrZero(safeMatrix[1][1]);
 
   return (
     <div className="matrix-card">
@@ -808,9 +699,8 @@ function ConfusionMatrix({
 function ForecastEvaluationCard({
   title,
   bestModel,
-  mae,
-  rmse,
-  mape,
+  seasonalNaive,
+  sarima,
 }) {
   return (
     <div className="evaluation-card">
@@ -824,51 +714,55 @@ function ForecastEvaluationCard({
         </div>
 
         <span className="winner-badge">
-          {bestModel}
+          Lower MAE: {bestModel}
         </span>
       </div>
 
-      <div className="evaluation-grid">
-        <div>
-          <span>MAE</span>
+      <div className="evaluation-model-block">
+        <div className="model-kicker">Seasonal-Naive baseline</div>
 
-          <strong>
-            {formatMoney(mae)}
-          </strong>
+        <div className="evaluation-grid">
+          <div>
+            <span>MAE</span>
+            <strong>{formatMoney(seasonalNaive.mae)}</strong>
+          </div>
+
+          <div>
+            <span>RMSE</span>
+            <strong>{formatMoney(seasonalNaive.rmse)}</strong>
+          </div>
+
+          <div>
+            <span>MAPE</span>
+            <strong>{formatPercent(seasonalNaive.mape)}</strong>
+          </div>
         </div>
+      </div>
 
-        <div>
-          <span>RMSE</span>
+      <div className="evaluation-model-block">
+        <div className="model-kicker">SARIMA</div>
 
-          <strong>
-            {formatMoney(rmse)}
-          </strong>
-        </div>
+        <div className="evaluation-grid">
+          <div>
+            <span>MAE</span>
+            <strong>{formatMoney(sarima.mae)}</strong>
+          </div>
 
-        <div>
-          <span>MAPE</span>
+          <div>
+            <span>RMSE</span>
+            <strong>{formatMoney(sarima.rmse)}</strong>
+          </div>
 
-          <strong>
-            {formatPercent(mape)}
-          </strong>
+          <div>
+            <span>MAPE</span>
+            <strong>{formatPercent(sarima.mape)}</strong>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-/*
- * Converts simple Markdown returned by Gemini
- * into readable React elements.
- *
- * Supported:
- * # Heading
- * ## Heading
- * ### Heading
- * - bullet
- * **bold**
- * ---
- */
 function renderInlineMarkdown(text) {
   const parts = String(text).split(
     /(\*\*.*?\*\*)/g
@@ -894,7 +788,6 @@ function ReportContent({ report }) {
   if (!report) return null;
 
   const lines = String(report).split("\n");
-
   const elements = [];
   let bulletItems = [];
 
@@ -1011,35 +904,17 @@ function ReportContent({ report }) {
 }
 
 function App() {
-  const [dashboard, setDashboard] =
-    useState(null);
-
-  const [historical, setHistorical] =
-    useState([]);
-
-  const [forecast, setForecast] =
-    useState([]);
-
-  const [loading, setLoading] =
-    useState(true);
-
+  const [dashboard, setDashboard] = useState(null);
+  const [historical, setHistorical] = useState([]);
+  const [forecast, setForecast] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [dashboardError, setDashboardError] =
     useState("");
-
-  const [report, setReport] =
-    useState("");
-
+  const [report, setReport] = useState("");
   const [reportLoading, setReportLoading] =
     useState(false);
+  const [reportError, setReportError] = useState("");
 
-  const [reportError, setReportError] =
-    useState("");
-
-  /*
-   * ------------------------------------
-   * LOAD DASHBOARD
-   * ------------------------------------
-   */
   useEffect(() => {
     let cancelled = false;
 
@@ -1054,42 +929,29 @@ function App() {
 
         if (cancelled) return;
 
-        const normalizedDashboard =
-          extractDashboard(payload);
-
-        const normalizedHistorical =
-          extractHistoricalData(payload);
-
-        const normalizedForecast =
-          extractForecastData(payload);
-          
-
-
-
-        setDashboard(
-          normalizedDashboard
-        );
-
-        setHistorical(
-          normalizedHistorical
-        );
-
-        setForecast(
-          normalizedForecast
-        );
+        setDashboard(extractDashboard(payload));
+        setHistorical(extractHistoricalData(payload));
+        setForecast(extractForecastData(payload));
       } catch (error) {
         if (cancelled) return;
 
-        console.error(
-          "Dashboard API error:",
-          error
-        );
-
-        setDashboardError(
-          error.status
-            ? `Dashboard request failed with status ${error.status}.`
-            : "Unable to connect to the dashboard API."
-        );
+        if (error.status === 401) {
+          setDashboardError(
+            "Authentication is required. Please provide a valid finance API token."
+          );
+        } else if (error.status === 403) {
+          setDashboardError(
+            "You are authenticated, but you do not have permission to view the dashboard."
+          );
+        } else if (error.status) {
+          setDashboardError(
+            `Dashboard request failed with status ${error.status}.`
+          );
+        } else {
+          setDashboardError(
+            "Unable to connect to the dashboard API."
+          );
+        }
       } finally {
         if (!cancelled) {
           setLoading(false);
@@ -1104,11 +966,6 @@ function App() {
     };
   }, []);
 
-  /*
-   * ------------------------------------
-   * GENERATE AI REPORT
-   * ------------------------------------
-   */
   async function handleGenerateReport() {
     setReportLoading(true);
     setReportError("");
@@ -1133,14 +990,14 @@ function App() {
 
       setReport(generatedReport);
     } catch (error) {
-      console.error(
-        "Report API error:",
-        error
-      );
 
-      if (error.status === 403) {
+      if (error.status === 401) {
         setReportError(
-          "Report access was denied (403). The dashboard is working, but the backend report endpoint requires authentication or permission."
+          "Authentication is required to generate the AI report."
+        );
+      } else if (error.status === 403) {
+        setReportError(
+          "Report access was denied. Your account does not have permission to generate the AI report."
         );
       } else if (error.status) {
         setReportError(
@@ -1156,11 +1013,6 @@ function App() {
     }
   }
 
-  /*
-   * ------------------------------------
-   * MODEL COMPARISON
-   * ------------------------------------
-   */
   const modelComparison = useMemo(() => {
     if (!dashboard) return [];
 
@@ -1172,7 +1024,6 @@ function App() {
         isolation:
           dashboard.isolation.precision,
       },
-
       {
         metric: "Recall",
         statistical:
@@ -1180,7 +1031,6 @@ function App() {
         isolation:
           dashboard.isolation.recall,
       },
-
       {
         metric: "F1 Score",
         statistical:
@@ -1191,11 +1041,6 @@ function App() {
     ];
   }, [dashboard]);
 
-  /*
-   * ------------------------------------
-   * LOADING SCREEN
-   * ------------------------------------
-   */
   if (loading) {
     return (
       <div className="app-shell">
@@ -1214,18 +1059,11 @@ function App() {
     );
   }
 
-  /*
-   * ------------------------------------
-   * ERROR SCREEN
-   * ------------------------------------
-   */
   if (dashboardError) {
     return (
       <div className="app-shell">
         <div className="error-screen">
-          <div className="error-icon">
-            !
-          </div>
+          <div className="error-icon">!</div>
 
           <h2>
             Unable to load dashboard
@@ -1234,9 +1072,8 @@ function App() {
           <p>{dashboardError}</p>
 
           <p className="error-help">
-            Make sure Django is running at
+            Make sure Django is running at{" "}
             <code>
-              {" "}
               http://127.0.0.1:8000/
             </code>
             .
@@ -1250,10 +1087,6 @@ function App() {
 
   return (
     <div className="app-shell">
-      {/* -------------------------------- */}
-      {/* HEADER */}
-      {/* -------------------------------- */}
-
       <header className="topbar">
         <div className="brand">
           <div className="brand-mark">
@@ -1274,16 +1107,11 @@ function App() {
 
         <div className="topbar-status">
           <span className="status-dot" />
-
           API Connected
         </div>
       </header>
 
       <main className="dashboard">
-        {/* -------------------------------- */}
-        {/* HERO */}
-        {/* -------------------------------- */}
-
         <section className="hero">
           <div>
             <span className="hero-eyebrow">
@@ -1311,10 +1139,6 @@ function App() {
             </strong>
           </div>
         </section>
-
-        {/* -------------------------------- */}
-        {/* SUMMARY CARDS */}
-        {/* -------------------------------- */}
 
         <section className="metric-grid">
           <MetricCard
@@ -1360,10 +1184,6 @@ function App() {
           />
         </section>
 
-        {/* -------------------------------- */}
-        {/* HISTORICAL ANALYTICS */}
-        {/* -------------------------------- */}
-
         <section className="section">
           <SectionHeader
             eyebrow="HISTORICAL ANALYTICS"
@@ -1401,9 +1221,7 @@ function App() {
                     <YAxis
                       tick={{ fontSize: 12 }}
                       tickFormatter={(value) =>
-                        formatCompactMoney(
-                          value
-                        )
+                        formatCompactMoney(value)
                       }
                     />
 
@@ -1452,15 +1270,11 @@ function App() {
           </div>
         </section>
 
-        {/* -------------------------------- */}
-        {/* FORECAST */}
-        {/* -------------------------------- */}
-
         <section className="section">
           <SectionHeader
             eyebrow="PREDICTIVE ANALYTICS"
             title="2026 financial forecast"
-            description="Predicted monthly income and expense based on the selected forecasting model."
+            description="Predicted monthly income and expense returned by the backend forecasting service."
           />
 
           <div className="chart-card">
@@ -1493,9 +1307,7 @@ function App() {
                     <YAxis
                       tick={{ fontSize: 12 }}
                       tickFormatter={(value) =>
-                        formatCompactMoney(
-                          value
-                        )
+                        formatCompactMoney(value)
                       }
                     />
 
@@ -1554,10 +1366,6 @@ function App() {
           </div>
         </section>
 
-        {/* -------------------------------- */}
-        {/* ANOMALY DETECTION */}
-        {/* -------------------------------- */}
-
         <section className="section">
           <SectionHeader
             eyebrow="ANOMALY DETECTION"
@@ -1574,9 +1382,7 @@ function App() {
               recall={
                 data.statistical.recall
               }
-              f1={
-                data.statistical.f1
-              }
+              f1={data.statistical.f1}
               accent="model-blue"
             />
 
@@ -1593,10 +1399,6 @@ function App() {
             />
           </div>
         </section>
-
-        {/* -------------------------------- */}
-        {/* CONFUSION MATRIX */}
-        {/* -------------------------------- */}
 
         <section className="section">
           <SectionHeader
@@ -1623,10 +1425,6 @@ function App() {
             />
           </div>
         </section>
-
-        {/* -------------------------------- */}
-        {/* MODEL COMPARISON */}
-        {/* -------------------------------- */}
 
         <section className="section">
           <SectionHeader
@@ -1674,11 +1472,6 @@ function App() {
                         value
                       ).toFixed(2)}%`
                     }
-                    contentStyle={{
-                      borderRadius: 12,
-                      border:
-                        "1px solid #e2e8f0",
-                    }}
                   />
 
                   <Legend />
@@ -1712,57 +1505,29 @@ function App() {
           </div>
         </section>
 
-        {/* -------------------------------- */}
-        {/* FORECAST EVALUATION */}
-        {/* -------------------------------- */}
-
         <section className="section">
           <SectionHeader
             eyebrow="FORECAST EVALUATION"
             title="Chronological validation"
-            description="Seasonal-Naive and SARIMA were evaluated using sequential historical periods."
+            description="Seasonal-Naive baseline and SARIMA are compared using expanding-window one-step-ahead validation."
           />
 
           <div className="evaluation-grid-main">
             <ForecastEvaluationCard
               title="Income Forecast"
-              bestModel={
-                data.incomeForecast
-                  .bestModel
-              }
-              mae={
-                data.incomeForecast.mae
-              }
-              rmse={
-                data.incomeForecast.rmse
-              }
-              mape={
-                data.incomeForecast.mape
-              }
+              bestModel={data.incomeForecast.bestModel}
+              seasonalNaive={data.incomeForecast.seasonalNaive}
+              sarima={data.incomeForecast.sarima}
             />
 
             <ForecastEvaluationCard
               title="Expense Forecast"
-              bestModel={
-                data.expenseForecast
-                  .bestModel
-              }
-              mae={
-                data.expenseForecast.mae
-              }
-              rmse={
-                data.expenseForecast.rmse
-              }
-              mape={
-                data.expenseForecast.mape
-              }
+              bestModel={data.expenseForecast.bestModel}
+              seasonalNaive={data.expenseForecast.seasonalNaive}
+              sarima={data.expenseForecast.sarima}
             />
           </div>
         </section>
-
-        {/* -------------------------------- */}
-        {/* SYSTEM INFORMATION */}
-        {/* -------------------------------- */}
 
         <section className="section">
           <SectionHeader
@@ -1814,10 +1579,6 @@ function App() {
           </div>
         </section>
 
-        {/* -------------------------------- */}
-        {/* AI MANAGEMENT REPORT */}
-        {/* -------------------------------- */}
-
         <section className="section report-section">
           <SectionHeader
             eyebrow="GENERATIVE AI"
@@ -1842,9 +1603,7 @@ function App() {
 
               <button
                 className="report-button"
-                onClick={
-                  handleGenerateReport
-                }
+                onClick={handleGenerateReport}
                 disabled={reportLoading}
               >
                 {reportLoading
@@ -1864,17 +1623,11 @@ function App() {
             )}
 
             {report && (
-              <ReportContent
-                report={report}
-              />
+              <ReportContent report={report} />
             )}
           </div>
         </section>
       </main>
-
-      {/* -------------------------------- */}
-      {/* FOOTER */}
-      {/* -------------------------------- */}
 
       <footer className="footer">
         <div>

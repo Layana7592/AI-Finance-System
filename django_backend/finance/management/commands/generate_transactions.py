@@ -226,6 +226,17 @@ class Command(BaseCommand):
         generated_anomalies = 0
 
         # --------------------------------------------------
+        # ACCOUNT BEHAVIOUR TRACKING
+        # --------------------------------------------------
+
+        account_last_transaction_time = {}
+
+        account_typical_amount = {
+            account.account_id: random.uniform(5000, 25000)
+            for account in accounts
+        }
+
+        # --------------------------------------------------
         # GENERATE TRANSACTIONS
         # --------------------------------------------------
 
@@ -348,7 +359,7 @@ class Command(BaseCommand):
                 # SELECT ANOMALY TYPE
                 # --------------------------------------------------
 
-                anomaly_type = random.choice(
+                anomaly_type = random.choices(
                     [
                         "large_amount",
                         "unusual_amount",
@@ -357,8 +368,18 @@ class Command(BaseCommand):
                         "unusual_location",
                         "unusual_time",
                         "high_frequency",
-                    ]
-                )
+                    ],
+                    weights=[
+                        10,  # Large amount
+                        15,  # Unusual amount
+                        15,  # Unusual transaction type
+                        15,  # Unusual merchant
+                        15,  # Unusual location
+                        15,  # Unusual time
+                        15,  # High frequency
+                    ],
+                    k=1,
+                )[0]
 
                 # --------------------------------------------------
                 # LARGE AMOUNT
@@ -366,10 +387,8 @@ class Command(BaseCommand):
 
                 if anomaly_type == "large_amount":
 
-                    amount *= random.uniform(
-                        5,
-                        15
-                    )
+                    # Still unusual, but not an extreme 10x-20x value.
+                    amount *= random.uniform(2.5, 4.0)
 
                 # --------------------------------------------------
                 # UNUSUAL AMOUNT
@@ -377,10 +396,10 @@ class Command(BaseCommand):
 
                 elif anomaly_type == "unusual_amount":
 
-                    amount = random.uniform(
-                        150000,
-                        500000
-                    )
+                    typical_amount = account_typical_amount[account_id]
+
+                    # Moderate deviation from normal account behaviour.
+                    amount = typical_amount * random.uniform(1.8, 2.8)
 
                 # --------------------------------------------------
                 # UNUSUAL TRANSACTION TYPE
@@ -388,114 +407,76 @@ class Command(BaseCommand):
 
                 elif anomaly_type == "unusual_transaction":
 
-                    transaction_type = random.choice(
-                        [
-                            "Transfer",
-                            "Withdrawal",
-                        ]
-                    )
+                    normal_type = transaction_type
 
-                    amount *= random.uniform(
-                        3,
-                        10
-                    )
+                    possible_types = [
+                        value
+                        for value in transaction_types
+                        if value != normal_type
+                    ]
+
+                    transaction_type = random.choice(possible_types)
+
+                    # No artificial huge amount multiplication.
+                    # The anomaly is primarily behavioural.
 
                 # --------------------------------------------------
                 # UNUSUAL MERCHANT
-                # --------------------------------------------------
-                #
-                # Merchant is intentionally outside the account's
-                # normal merchant profile.
                 # --------------------------------------------------
 
                 elif anomaly_type == "unusual_merchant":
 
                     merchant = fake.company()
 
-                    while (
-                        merchant in
-                        account_merchants[
-                            account_id
-                        ]
-                    ):
-
+                    while merchant in account_merchants[account_id]:
                         merchant = fake.company()
 
                 # --------------------------------------------------
                 # UNUSUAL LOCATION
-                # --------------------------------------------------
-                #
-                # Location is intentionally outside the account's
-                # normal location profile.
                 # --------------------------------------------------
 
                 elif anomaly_type == "unusual_location":
 
                     location = fake.city()
 
-                    while (
-                        location in
-                        account_locations[
-                            account_id
-                        ]
-                    ):
-
+                    while location in account_locations[account_id]:
                         location = fake.city()
 
                 # --------------------------------------------------
                 # UNUSUAL TIME
                 # --------------------------------------------------
-                #
-                # Transactions between midnight and 5 AM are
-                # unusual for this synthetic banking dataset.
-                # --------------------------------------------------
 
                 elif anomaly_type == "unusual_time":
 
-                    unusual_hour = random.randint(
-                        0,
-                        5
-                    )
+                    # Very early morning transaction.
+                    unusual_hour = random.randint(0, 4)
 
-                    transaction_time = (
-                        transaction_time.replace(
-                            hour=unusual_hour,
-                            minute=random.randint(
-                                0,
-                                59
-                            ),
-                            second=random.randint(
-                                0,
-                                59
-                            )
-                        )
+                    transaction_time = transaction_time.replace(
+                        hour=unusual_hour,
+                        minute=random.randint(0, 59),
+                        second=random.randint(0, 59),
                     )
 
                 # --------------------------------------------------
                 # HIGH FREQUENCY / BURST
                 # --------------------------------------------------
-                #
-                # Create a transaction very close to the previous
-                # time point. This gives the later fraud service
-                # a useful signal for transaction frequency.
-                # --------------------------------------------------
 
                 elif anomaly_type == "high_frequency":
 
-                    transaction_time = (
-                        transaction_time
-                        + timedelta(
-                            seconds=random.randint(
-                                1,
-                                20
-                            )
-                        )
-                    )
+                    previous_time = account_last_transaction_time.get(account_id)
 
-                    amount *= random.uniform(
-                        1.5,
-                        4
-                    )
+                    if previous_time is not None:
+
+                        transaction_time = (
+                            previous_time
+                            + timedelta(seconds=random.randint(5, 30))
+                        )
+
+            # --------------------------------------------------
+            # UPDATE ACCOUNT TRANSACTION TIME
+            # --------------------------------------------------
+
+            account_last_transaction_time[account_id] = transaction_time
 
             # --------------------------------------------------
             # ROUND AMOUNT

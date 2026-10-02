@@ -387,6 +387,10 @@ def _build_chronological_features(transactions):
                 transaction_time.hour
             )
 
+            day_of_week = (
+                transaction_time.weekday()
+            )
+
             previous_hour_count = (
                 account_hours[
                     account_id
@@ -431,14 +435,31 @@ def _build_chronological_features(transactions):
                 / 24
             )
 
+            day_sin = np.sin(
+                2
+                * np.pi
+                * day_of_week
+                / 7
+            )
+
+            day_cos = np.cos(
+                2
+                * np.pi
+                * day_of_week
+                / 7
+            )
+
         else:
 
             hour = 0
+            day_of_week = 0
             unusual_hour = 0
             hour_frequency = 0.0
             hour_rarity = 0.0
             hour_sin = 0.0
             hour_cos = 0.0
+            day_sin = 0.0
+            day_cos = 0.0
 
         # ----------------------------------------------------
         # TIME SINCE PREVIOUS TRANSACTION
@@ -583,6 +604,8 @@ def _build_chronological_features(transactions):
             # Time behaviour
             hour_sin,
             hour_cos,
+            day_sin,
+            day_cos,
             unusual_hour,
             hour_frequency,
             hour_rarity,
@@ -1090,117 +1113,55 @@ def _calculate_behavioural_risk_scores(
 # ISOLATION FOREST
 # ============================================================
 
-def isolation_forest_predictions(
-    transactions
-):
+def _isolation_forest_scores(transactions):
     """
-    Hybrid anomaly detection.
+    Generate pure Isolation Forest anomaly scores.
 
-    Isolation Forest provides unsupervised anomaly scores.
-
-    Behavioural scoring provides interpretable account-level
-    fraud signals.
-
-    The two scores are combined and the top 1% of transactions
-    are classified as anomalies.
-
-    Ground-truth labels are NOT used by this function.
+    Ground-truth is_anomaly labels are never used by the model.
+    The synthetic 1% anomaly prevalence is used only as the
+    contamination setting for this controlled benchmark.
     """
 
     if not transactions:
-        return np.array([], dtype=int)
+        return np.array([], dtype=float), np.array([], dtype=int)
 
-    X, _ = _build_chronological_features(
-        transactions
-    )
-
-    behavioural_scores = np.array(
-        _calculate_behavioural_risk_scores(
-            transactions
-        ),
-        dtype=float,
-    )
+    X, _ = _build_chronological_features(transactions)
 
     isolation_forest = IsolationForest(
         n_estimators=300,
-        contamination="auto",
+        contamination=0.01,
         random_state=42,
         n_jobs=-1,
     )
 
     isolation_forest.fit(X)
 
-    # Higher value = more anomalous
-    isolation_scores = (
-        -isolation_forest.decision_function(
-            X
-        )
+    # Higher score = more anomalous.
+    anomaly_scores = (
+        -isolation_forest.decision_function(X)
     )
 
-    # Convert Isolation Forest scores
-    # into percentile ranks from 0 to 1.
-    if len(isolation_scores) > 1:
+    predictions = (
+        isolation_forest.predict(X) == -1
+    ).astype(int)
 
-        isolation_percentiles = (
-            np.argsort(
-                np.argsort(
-                    isolation_scores
-                )
-            )
-            / (
-                len(isolation_scores)
-                - 1
-            )
-        )
+    return anomaly_scores, predictions
 
-    else:
 
-        isolation_percentiles = (
-            np.zeros(
-                len(isolation_scores)
-            )
-        )
+def isolation_forest_predictions(transactions):
+    """
+    Pure Isolation Forest predictions.
 
-    # --------------------------------------------------------
-    # HYBRID SCORE
-    # --------------------------------------------------------
+    Returns:
+        1 = predicted anomaly
+        0 = predicted normal
 
-    strong_signal = (
-    X[:, 1]
-    + X[:, 2]
-    + X[:, 3]
-    + X[:, 6]
+    Ground-truth is_anomaly is never used here.
+    """
+
+    _, predictions = _isolation_forest_scores(
+        transactions
     )
-
-    if strong_signal.max() > 0:
-        strong_signal = strong_signal / strong_signal.max()
-
-    hybrid_scores = (
-    0.30 * isolation_percentiles
-    + 0.70 * strong_signal
-    )
-
-    # --------------------------------------------------------
-    # TOP 1% ANOMALY RATE
-    # --------------------------------------------------------
-
-    anomaly_count = max(
-    1,
-    int(
-        round(
-            len(hybrid_scores) * 0.01
-        )
-    ),
-    )
-
-    sorted_indexes = np.argsort(hybrid_scores)[::-1]
-
-    predictions = np.zeros(
-    len(hybrid_scores),
-    dtype=int,
-    )
-
-    predictions[sorted_indexes[:anomaly_count]] = 1
 
     return predictions
 
@@ -1374,13 +1335,11 @@ def evaluate_fraud_models(transactions=None):
 
 def generate_fraud_predictions(transactions=None):
     """
-    Generate and save fraud predictions.
+    Generate and save pure Isolation Forest fraud predictions.
 
-    The model does not use is_anomaly while generating
-    predictions.
-
-    is_anomaly is only the synthetic ground truth used
-    separately for evaluation.
+    The model does not use is_anomaly while generating predictions.
+    is_anomaly is synthetic ground truth and is used only for
+    evaluation.
     """
 
     from decimal import Decimal
@@ -1398,25 +1357,39 @@ def generate_fraud_predictions(transactions=None):
     if not transactions:
         return 0
 
-    predictions = isolation_forest_predictions(
-        transactions
+    anomaly_scores, predictions = (
+        _isolation_forest_scores(transactions)
     )
+
+    # Convert anomaly scores into a stable 0-1 percentile.
+    if len(anomaly_scores) > 1:
+        order = np.argsort(
+            np.argsort(anomaly_scores)
+        )
+        score_percentiles = (
+            order
+            / float(len(anomaly_scores) - 1)
+        )
+    else:
+        score_percentiles = np.zeros(
+            len(anomaly_scores)
+        )
 
     created_count = 0
 
     for index, tx in enumerate(transactions):
 
-        prediction = int(predictions[index])
+        is_fraud = bool(
+            predictions[index]
+        )
 
-        # Convert Isolation Forest output:
-        # -1 = anomaly/fraud
-        #  1 = normal
-        is_fraud = prediction == 1
-
-        # Use the behavioural + Isolation Forest result
-        # as a simple probability-like score for storage.
         fraud_probability = Decimal(
-            "1.0" if is_fraud else "0.0"
+            str(
+                round(
+                    float(score_percentiles[index]),
+                    4,
+                )
+            )
         )
 
         FraudPrediction.objects.update_or_create(
@@ -1424,7 +1397,7 @@ def generate_fraud_predictions(transactions=None):
             defaults={
                 "prediction": is_fraud,
                 "fraud_probability": fraud_probability,
-                "model_version": "IsolationForest-v2",
+                "model_version": "IsolationForest-v3",
                 "predicted_at": timezone.now(),
             },
         )

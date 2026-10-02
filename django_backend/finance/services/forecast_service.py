@@ -424,7 +424,9 @@ def generate_forecast(months=12):
     """
     Generate future income and expense forecasts.
 
-    Uses the forecasting model selected through validation.
+    The system evaluates Seasonal Naive and SARIMA using
+    expanding-window validation and automatically selects
+    the model with the lower MAPE for each series.
     """
 
     data = get_monthly_transaction_data()
@@ -436,34 +438,74 @@ def generate_forecast(months=12):
         return []
 
     # --------------------------------------------------
-    # INCOME FORECAST
+    # VALIDATION
     # --------------------------------------------------
 
-    income_forecast = seasonal_naive_forecast(
+    income_validation = expanding_window_validation(
         income,
-        months,
-        season_length=12,
+        initial_train_size=13,
+        horizon=1,
     )
 
-    # --------------------------------------------------
-    # EXPENSE FORECAST
-    # --------------------------------------------------
-
-    expense_forecast = seasonal_naive_forecast(
+    expense_validation = expanding_window_validation(
         expense,
-        months,
-        season_length=12,
+        initial_train_size=13,
+        horizon=1,
     )
 
-    income_forecast = np.maximum(
-        income_forecast,
-        0,
+    # --------------------------------------------------
+    # SELECT BEST MODEL
+    # --------------------------------------------------
+
+    income_naive_mape = income_validation["seasonal_naive"]["mape"]
+    income_sarima_mape = income_validation["sarima"]["mape"]
+
+    expense_naive_mape = expense_validation["seasonal_naive"]["mape"]
+    expense_sarima_mape = expense_validation["sarima"]["mape"]
+
+    income_model = (
+        "seasonal_naive"
+        if income_naive_mape <= income_sarima_mape
+        else "sarima"
     )
 
-    expense_forecast = np.maximum(
-        expense_forecast,
-        0,
+    expense_model = (
+        "seasonal_naive"
+        if expense_naive_mape <= expense_sarima_mape
+        else "sarima"
     )
+
+    # --------------------------------------------------
+    # GENERATE FORECASTS
+    # --------------------------------------------------
+
+    if income_model == "seasonal_naive":
+        income_forecast = seasonal_naive_forecast(
+            income,
+            months,
+            season_length=12,
+        )
+    else:
+        income_forecast = sarima_forecast(
+            income,
+            months,
+        )
+
+    if expense_model == "seasonal_naive":
+        expense_forecast = seasonal_naive_forecast(
+            expense,
+            months,
+            season_length=12,
+        )
+    else:
+        expense_forecast = sarima_forecast(
+            expense,
+            months,
+        )
+
+    # Prevent negative financial forecasts
+    income_forecast = np.maximum(income_forecast, 0)
+    expense_forecast = np.maximum(expense_forecast, 0)
 
     # --------------------------------------------------
     # BUILD RESULTS
@@ -475,10 +517,7 @@ def generate_forecast(months=12):
 
     for i in range(1, months + 1):
 
-        forecast_date = (
-            last_date
-            + pd.DateOffset(months=i)
-        )
+        forecast_date = last_date + pd.DateOffset(months=i)
 
         results.append({
             "forecast_month": forecast_date.date(),
