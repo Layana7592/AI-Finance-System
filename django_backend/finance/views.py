@@ -8,6 +8,8 @@ from .permissions import IsAdminOrManagerForWrite
 from .permissions import IsAdminOrManagerForWriteAlerts
 from rest_framework.views import APIView
 from rest_framework.exceptions import PermissionDenied
+from django.utils import timezone
+
 
 from .models import (
     User,
@@ -31,7 +33,10 @@ from .serializers import (
     JournalEntrySerializer,
 )
 
-from .services.fraud_service import evaluate_fraud_models
+from .services.fraud_service import (
+    evaluate_fraud_models,
+    generate_fraud_predictions,
+)
 from .services.forecast_service import evaluate_forecast_models
 from .services.dashboard_service import get_dashboard_data
 from .services.gemini_service import generate_gemini_report
@@ -163,7 +168,43 @@ class TransactionViewSet(viewsets.ModelViewSet):
         # Any unknown role → no access
         return Transaction.objects.none()
 
+    def perform_create(self, serializer):
+        transaction = serializer.save()
 
+        # Run the existing fraud detection workflow.
+        generate_fraud_predictions()
+
+        # Get the prediction generated for this transaction.
+        prediction = FraudPrediction.objects.filter(
+            transaction=transaction
+        ).first()
+
+        # Create an alert when the model flags the transaction.
+        if prediction and prediction.prediction:
+            Alert.objects.create(
+                alert_type="Fraud / Anomaly",
+                severity="High",
+                message=(
+                    f"Transaction {transaction.transaction_id} "
+                    f"was flagged by {prediction.model_version}."
+                ),
+                is_resolved=False,
+                created_at=timezone.now(),
+                transaction=transaction,
+            )
+
+        # Record the workflow action.
+        AuditLog.objects.create(
+            user=self.request.user,
+            action=(
+                f"Transaction {transaction.transaction_id} created "
+                f"and analysed. "
+                f"Fraud prediction: "
+                f"{prediction.prediction if prediction else 'Unavailable'}."
+            ),
+            ip_address=self.request.META.get("REMOTE_ADDR", ""),
+            log_time=timezone.now(),
+        )
 # ============================================================
 # FRAUD / ANOMALY PREDICTION
 # ============================================================
@@ -260,7 +301,15 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
             saved_forecasts = FinancialForecast.objects.bulk_create(
                 forecast_objects
             )
-
+            AuditLog.objects.create(
+                user=request.user,
+                action=(
+                    f"Generated {len(saved_forecasts)} financial forecast records "
+                    f"for {horizon} months."
+                    ),
+                    ip_address=request.META.get("REMOTE_ADDR", ""),
+                    log_time=timezone.now(),
+            )
             serializer = self.get_serializer(
                 saved_forecasts,
                 many=True,
@@ -333,9 +382,23 @@ class AlertViewSet(viewsets.ModelViewSet):
         # Analyst → can read all alerts
         if user.role.role_name == "Analyst":
             return Alert.objects.all().order_by("-alert_id")
+
         # Unknown role → no alerts
         return Alert.objects.none()
 
+    def perform_update(self, serializer):
+        alert = serializer.save()
+
+        AuditLog.objects.create(
+            user=self.request.user,
+            action=(
+                f"Alert {alert.alert_id} updated for "
+                f"Transaction {alert.transaction_id}. "
+                f"Resolved: {alert.is_resolved}."
+            ),
+            ip_address=self.request.META.get("REMOTE_ADDR", ""),
+            log_time=timezone.now(),
+        )
 # ============================================================
 # JOURNAL ENTRY
 # ============================================================
@@ -428,6 +491,14 @@ class GeminiReportView(APIView):
         try:
 
             result = generate_gemini_report()
+
+            AuditLog.objects.create(
+                user=request.user,
+                action="Generated Gemini management financial report.",
+                ip_address=request.META.get("REMOTE_ADDR", ""),
+                log_time=timezone.now(),
+            )
+
 
             return Response(
                 result,
