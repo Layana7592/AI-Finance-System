@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+﻿import { useEffect, useRef, useState } from "react";
 import AnalyticsDashboard from "./App.jsx";
 import OperationalWorkspace from "./OperationalWorkspace.jsx";
 import SyntheticLedgerWorkspace from "./SyntheticLedgerWorkspace.jsx";
@@ -192,10 +192,10 @@ export default function DemoExperience() {
           method: "POST",
           body: JSON.stringify({
             account: findings.account.account_id,
-            amount: "999999.00",
-            transaction_type: "Withdrawal",
-            merchant: "UnexpectedMerchant",
-            location: "UnusualLocation",
+            amount: "999999999.00",
+            transaction_type: "Transfer",
+            merchant: `DemoMerchant-${Date.now()}`,
+            location: `DemoLocation-${Date.now()}`,
             transaction_time: new Date().toISOString(),
             status: "Completed",
           }),

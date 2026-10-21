@@ -49,6 +49,18 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 RESEARCH_EVAL_CACHE_SECONDS = int(os.getenv("RESEARCH_EVAL_CACHE_SECONDS", "900"))
 
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+        "LOCATION": "django_cache",
+        "TIMEOUT": 900,
+        "OPTIONS": {
+            "MAX_ENTRIES": 1000,
+        },
+    }
+}
+
+
 
 # ============================================================
 # APPLICATIONS
