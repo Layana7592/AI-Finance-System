@@ -6,6 +6,8 @@ AI Finance System is an academic banking analytics project built using Django RE
 
 The system demonstrates banking data management, role-based access control, anomaly detection, financial forecasting, dashboard analytics, and AI-assisted management reporting using synthetic banking data.
 
+> **Recovery-branch documentation (not the upstream student's repository):** This README tracks verified implementation and experiments in `Abhijith513/AI-Finance-System` at `rescue/submission-critical-fixes`. Earlier experimental outputs are retained in [Historical README Results](docs/HISTORICAL_README_RESULTS.md), and unresolved issues are tracked in [Remediation Plan](docs/REMEDIATION_MASTER_PLAN.md). Do not represent this as the unchanged upstream source or as production banking software.
+
 > **Note:** This is an academic/research prototype using synthetic data. It is not intended for real-world banking deployment.
 
 ---
@@ -183,49 +185,25 @@ The system compares both approaches using:
 - Accuracy
 - Confusion Matrix
 
-## Current Evaluation
+## Current Verified Recovery Evaluation (seed 42, 17 October 2026)
 
-### Dataset
+The **original project's earlier experiment is preserved unchanged** in [Historical README Results](docs/HISTORICAL_README_RESULTS.md). The following results were independently recomputed on our recovery revision with 50,000 synthetic transactions and 500 artificial anomaly labels. These two sets of numbers are **different experiments/snapshots** and must not be presented as directly equivalent.
 
-```text
-Transactions: 50,000
-Actual anomalies: 500
-Anomaly rate: 1.00%
-```
+| Metric | Statistical baseline | Isolation Forest |
+|---|---:|---:|
+| Precision | 66.14% | 4.40% |
+| Recall | 75.00% | 4.40% |
+| F1 score | 70.29% | 4.40% |
+| True positives | 375 | 22 |
+| False positives | 192 | 478 |
+| False negatives | 125 | 478 |
+| True negatives | 49,308 | 49,022 |
 
-## Statistical Baseline
+The statistical baseline performed substantially better **on this synthetic dataset**. The anomalies are dominated by large amounts, which favours an amount-based baseline. The Isolation Forest result is **in-sample**, not a held-out generalization estimate. A chronological holdout and realistic behavioural-only anomaly experiment remain unresolved research tasks.
 
-```text
-Precision: 0.0971
-Recall:    0.0400
-F1 Score:  0.0567
-Accuracy:  0.9867
-```
+**Do not confuse the two fraud pipelines:** the live transaction API uses a lightweight uncalibrated behavioural risk score; Isolation Forest is an explicitly invoked offline academic benchmark. Neither is proof of real-world fraud detection accuracy.
 
-### Confusion Matrix
-
-```text
-[[49314, 186],
- [480,    20]]
-```
-
-## Isolation Forest
-
-```text
-Precision: 0.0720
-Recall:    0.0720
-F1 Score:  0.0720
-Accuracy:  0.9814
-```
-
-### Confusion Matrix
-
-```text
-[[49036, 464],
- [464,    36]]
-```
-
-These results are based on the synthetic evaluation dataset and should not be interpreted as real-world banking fraud performance.
+**Source evidence:** [reproducible seed-42 metrics and 12 saved forecasts](https://github.com/Abhijith513/AI-Finance-System/actions/runs/39007808672). This artifact predates subsequent presenter improvements; refer to its commit SHA when reporting numerical results.
 
 ---
 
@@ -278,21 +256,44 @@ Forecast performance is measured using:
 
 Stationarity is also checked using the Augmented Dickey-Fuller test.
 
-## Income Forecast Evaluation
+## Recovery Revision: Forecast Evaluation (seed 42)
 
-| Model | MAE | RMSE | MAPE |
-|---|---:|---:|---:|
-| Seasonal-Naive | 1,679,409.90 | 1,838,216.28 | 10.30% |
-| SARIMA | 1,850,466.74 | 2,585,678.28 | 10.29% |
+The following figures were recomputed for the 24-month **synthetic** history. Historical README results, including the earlier 2,236.65% SARIMA expense MAPE, are preserved in [Historical README Results](docs/HISTORICAL_README_RESULTS.md); they are not current recovery results.
 
-## Expense Forecast Evaluation
+| Target | Model | MAPE | Validation windows |
+|---|---|---:|---:|
+| Income | Seasonal-Naive | 7.83% | 11 |
+| Income | SARIMA | 61.62% | 10 |
+| Expense | Seasonal-Naive | 3.82% | 11 |
+| Expense | SARIMA | 7.97% | 10 |
 
-| Model | MAE | RMSE | MAPE |
-|---|---:|---:|---:|
-| Seasonal-Naive | 3,492,657.63 | 3,847,290.43 | 7.03% |
-| SARIMA | 1,084,914,455.67 | 3,211,907,274.48 | 2,236.65% |
+**Caution:** Because SARIMA did not complete all 11 validation windows, this is **not a fully paired comparison**. The generator falls back to Seasonal-Naive on SARIMA failure or incomplete validation coverage. A matched-window comparison, residual analysis, and uncertainty intervals are planned corrective work, not completed claims.
 
-The evaluation results are displayed in the dashboard so that the performance of the two forecasting approaches can be compared.
+[Download the exact metrics artifact from the verified GitHub Actions run](https://github.com/Abhijith513/AI-Finance-System/actions/runs/39007808672).
+
+---
+
+## Latest Demonstration Workflow (recovery branch)
+
+- Sign in through the React login form using a **locally provisioned** `demo_presenter` Admin account.
+- Click **Start timed demonstration** to create a new **synthetic** transaction and verify its fraud screen, saved alert, audit record, 12 stored forecasts and deterministic management report fallback.
+- The demo is *not* a live Gemini demonstration unless a valid API key is configured and a real response is successfully checked.
+- Presenter credentials are never committed; create the account using `DEMO_PRESENTER_PASSWORD` and `python manage.py prepare_demo_presenter` after bootstrapping.
+- Follow [the step-by-step PGDDSA runbook](docs/PGDDSA_LIVE_DEMO_RUNBOOK.md). For live browser and frontend checks, consult [GitHub Actions](https://github.com/Abhijith513/AI-Finance-System/actions).
+- Only research outputs from an exact recorded commit should be included in a formal academic report. The live demo adds synthetic transactions and therefore changes live counts.
+
+---
+
+## Separate chronological and behavioural research (H5–H8)
+
+The current recovery revision includes **new, separately labelled studies** in addition to — **not instead of** — the original in-sample experiment. See [verified research findings](docs/CONTROLLED_RESEARCH_FINDINGS.md), the [prespecified protocol](docs/CONTROLLED_RESEARCH_PROTOCOL.md), and [the actual CI evidence artifact](https://github.com/Abhijith513/AI-Finance-System/actions/runs/39023138671).
+
+- Chronological holdout of original synthetic dataset: train on the first 40,000 transactions, test on later 10,000 (115 anomalies). Isolation Forest detected **1/115**, F1 **1.72%**; statistical amount baseline detected **96/115**, F1 **91.00%**.
+- Separate behaviour-only study: 6,000 synthetic events, 90 labelled anomalies entirely in the later test period. Neither Isolation Forest nor the amount-based baseline detected any; this is an openly reported **negative result**.
+- **Matched-window** seasonal forecasting on exactly the same ten successful months: income Seasonal-Naive/SARIMA MAPE **7.51% / 61.57%**; expense **3.69% / 7.33%**. SARIMA failed the March 2025 window, which remains explicitly disclosed.
+- Actual false-negative cases, descriptive feature contrasts, and residual/worst-window details are in the evidence JSON. No claim of causal feature attribution is made.
+
+**Caution:** Held-out evaluation is not equivalent to the earlier in-sample results. Both datasets and fraud labels are synthetic, and a fixed 1% contamination threshold does not represent a calibrated financial-fraud probability.
 
 ---
 
@@ -443,8 +444,9 @@ AI-Finance-System/
 ## Clone Repository
 
 ```powershell
-git clone https://github.com/Layana7592/AI-Finance-System.git
+git clone https://github.com/Abhijith513/AI-Finance-System.git
 cd AI-Finance-System
+git switch rescue/submission-critical-fixes
 ```
 
 ## Create Virtual Environment
@@ -476,7 +478,7 @@ django_backend/.env
 ## Example
 
 ```env
-SECRET_KEY=your_django_secret_key
+DJANGO_SECRET_KEY=your_django_secret_key
 DEBUG=True
 
 DB_NAME=your_database_name
@@ -600,9 +602,7 @@ python manage.py test
 ## Current Verified Result
 
 ```text
-39 tests
-39 passed
-0 failed
+Previously verified: 58/58 Django tests on PostgreSQL and React build/lint. Latest verification is tracked through GitHub Actions; run the test workflow for the current branch head.\nEvidence: https://github.com/Abhijith513/AI-Finance-System/actions/workflows/rescue-tests.yml
 ```
 
 ---
@@ -698,11 +698,7 @@ Possible future improvements include:
 
 # 26. GitHub Repository
 
-https://github.com/Layana7592/AI-Finance-System
-
----
-
-# Academic Project Note
+Recovery branch: https://github.com/Abhijith513/AI-Finance-System/tree/rescue/submission-critical-fixes\n\nOriginal student repository (unchanged): https://github.com/Layana7592/AI-Finance-System\n\nAll fixes are isolated from the original repo pending explicit academic handover.\n\n---\n\n# Academic Project Note
 
 This project demonstrates the integration of:
 
