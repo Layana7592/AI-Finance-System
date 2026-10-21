@@ -55,6 +55,13 @@ class IsAdminManagerOrAnalyst(BasePermission):
         ]
 
 
+class IsAdminOrAnalyst(BasePermission):
+    """Institution-wide analytics are limited to Admin and Analyst roles."""
+
+    def has_permission(self, request, view):
+        return get_user_role(request) in ["Admin", "Analyst"]
+
+
 class IsAdminManagerOrCustomer(BasePermission):
     def has_permission(self, request, view):
         return get_user_role(request) in [

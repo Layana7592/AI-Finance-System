@@ -1,0 +1,98 @@
+name: Operational performance evidence
+
+on:
+  push:
+    branches: [rescue/submission-critical-fixes]
+    paths:
+      - .github/workflows/operational-benchmarks.yml
+      - django_backend/finance/services/cached_research.py
+      - django_backend/finance/management/commands/benchmark_operational_api.py
+      - django_backend/finance/test_operations_performance_reporting.py
+      - django_backend/finance/views.py
+      - django_backend/finance/services/gemini_service.py
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/operational-benchmarks.yml
+      - django_backend/finance/services/cached_research.py
+      - django_backend/finance/management/commands/benchmark_operational_api.py
+      - django_backend/finance/test_operations_performance_reporting.py
+      - django_backend/finance/views.py
+      - django_backend/finance/services/gemini_service.py
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  latency:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: finance_benchmark
+          POSTGRES_USER: finance_benchmark
+          POSTGRES_PASSWORD: ci_only_password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U finance_benchmark -d finance_benchmark"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DJANGO_SECRET_KEY: test-only-do-not-deploy
+      DEBUG: "False"
+      DB_NAME: finance_benchmark
+      DB_USER: finance_benchmark
+      DB_PASSWORD: ci_only_password
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+      DEMO_PRESENTER_PASSWORD: "Synthetic-only-CI-password-2026"
+      GEMINI_API_KEY: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: django_backend/requirements.txt
+      - name: Install dependencies
+        run: python -m pip install -r django_backend/requirements.txt
+      - name: Run caching and operational permission tests
+        working-directory: django_backend
+        run: python manage.py test finance.test_operations_performance_reporting --noinput
+      - name: Initialize disposable PostgreSQL database
+        working-directory: django_backend
+        run: python manage.py migrate --noinput
+      - name: Seed original 50,000 synthetic transactions
+        working-directory: django_backend
+        run: python manage.py bootstrap_demo_data --seed 42 --transactions 50000 --anomalies 500
+      - name: Create private presenter account
+        working-directory: django_backend
+        run: python manage.py prepare_demo_presenter
+      - name: Run real HTTP stack latency checks and record p50/p95
+        working-directory: django_backend
+        run: python manage.py benchmark_operational_api --samples 8 --output evidence/operational_timings.json
+      - name: Validate measured outputs (do not invent hard performance SLA)
+        run: |
+          python - <<'PY'
+          import json
+          p = "django_backend/evidence/operational_timings.json"
+          data = json.load(open(p))
+          assert data["dataset_after_posts"] >= 50000
+          assert data["cold_dashboard_ms"] > 0
+          for key in ("warm_dashboard","operations","password_login","fraud_prediction_readback","report_fallback_or_gemini","new_synthetic_transaction"):
+              record = data[key]
+              assert record["requests"] == 8
+              assert 0 < record["min_ms"] <= record["median_ms"] <= record["p95_ms"] <= record["max_ms"]
+          assert data["post_write_cache_recalculation_ms"] > 0
+          print("Latency evidence validated")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: operational-api-latency-evidence
+          path: django_backend/evidence/operational_timings.json
+          if-no-files-found: error

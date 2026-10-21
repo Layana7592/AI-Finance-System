@@ -700,6 +700,38 @@ class Command(BaseCommand):
                 )
 
         # ============================================================
+        # GENERATE THE FIRST FORECAST ON A FRESH CLONE
+        # ============================================================
+
+        # Previously forecasts were created only by the idempotent *second*
+        # bootstrap call. Fresh installations therefore had an empty table.
+        # Keep this outside the initial data transaction so an interrupted
+        # forecast can be retried by re-running bootstrap without duplicating
+        # 50,000 transactions.
+        if FinancialForecast.objects.count() == 0:
+            forecast_results = generate_forecast(months=12)
+            if len(forecast_results) != 12:
+                raise CommandError(
+                    "Demo data created, but 12 forecast months were not produced. "
+                    "Re-run bootstrap to retry forecasting safely."
+                )
+            with db_transaction.atomic():
+                FinancialForecast.objects.bulk_create([
+                    FinancialForecast(
+                        forecast_month=item["forecast_month"],
+                        predicted_income=item["predicted_income"],
+                        predicted_expense=item["predicted_expense"],
+                        generated_at=timezone.now(),
+                    )
+                    for item in forecast_results
+                ])
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Financial forecasts generated: {len(forecast_results)}"
+                )
+            )
+
+        # ============================================================
         # FINAL SUCCESS MESSAGE
         # ============================================================
 

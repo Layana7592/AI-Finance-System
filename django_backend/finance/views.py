@@ -3,17 +3,22 @@ from rest_framework.response import Response
 from .serializers import UserSerializer, UserCreateSerializer
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from .permissions import IsAdminOrManager, IsAdminManagerOrAnalyst
+from rest_framework.authentication import TokenAuthentication
+from rest_framework.authtoken.models import Token
+from .permissions import IsAdminOrManager, IsAdminManagerOrAnalyst, IsAdminOrAnalyst, IsAdmin
 from .permissions import IsAdminOrManagerForWrite
 from .permissions import IsAdminOrManagerForWriteAlerts
 from rest_framework.views import APIView
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError, MethodNotAllowed
 from django.utils import timezone
+from django.db import transaction as db_transaction
+from .services.live_fraud_service import screen_transaction
 from .services.audit_service import create_audit_log
 
 
 from .models import (
     User,
+    Role,
     Account,
     Transaction,
     FraudPrediction,
@@ -34,10 +39,7 @@ from .serializers import (
     JournalEntrySerializer,
 )
 
-from .services.fraud_service import (
-    evaluate_fraud_models,
-    generate_fraud_predictions,
-)
+from .services.fraud_service import evaluate_fraud_models
 from .services.forecast_service import evaluate_forecast_models
 from .services.dashboard_service import get_dashboard_data
 from .services.gemini_service import generate_gemini_report
@@ -51,6 +53,11 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAdminOrManager]
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return UserCreateSerializer
+        return UserSerializer
 
     def get_queryset(self):
         user = self.request.user
@@ -192,6 +199,8 @@ class AccountViewSet(viewsets.ModelViewSet):
 class TransactionViewSet(viewsets.ModelViewSet):
     serializer_class = TransactionSerializer
     permission_classes = [IsAdminOrManagerForWrite]
+    # Preserve original transactions and their audit trail; no in-place edits/deletes.
+    http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
         user = self.request.user
@@ -219,70 +228,44 @@ class TransactionViewSet(viewsets.ModelViewSet):
         # Any unknown role → no access
         return Transaction.objects.none()
 
+    @db_transaction.atomic
     def perform_create(self, serializer):
+        # A transaction, its score, alert (if any) and audit log commit together.
         transaction = serializer.save()
 
-        # Run the existing fraud detection workflow.
-        generate_fraud_predictions()
+        # Account-bounded behavioural screen; Isolation Forest is a batch benchmark.
+        prediction = screen_transaction(transaction)
 
-        # Get the prediction generated for this transaction.
-        prediction = FraudPrediction.objects.filter(
-            transaction=transaction
-        ).first()
-
-        # Create an alert when the model flags the transaction.
-        if prediction and prediction.prediction:
-            Alert.objects.create(
-                alert_type="Fraud / Anomaly",
-                severity="High",
-                message=(
-                    f"Transaction {transaction.transaction_id} "
-                    f"was flagged by {prediction.model_version}."
-                ),
-                is_resolved=False,
-                created_at=timezone.now(),
+        if prediction.prediction:
+            Alert.objects.get_or_create(
                 transaction=transaction,
+                alert_type="Fraud / Anomaly",
+                defaults={
+                    "severity": "High",
+                    "message": (
+                        f"Transaction {transaction.transaction_id} "
+                        f"was flagged by {prediction.model_version}."
+                    ),
+                    "is_resolved": False,
+                    "created_at": timezone.now(),
+                },
             )
 
-        # Record the workflow action.
         create_audit_log(
             self.request,
             (
-                f"Transaction {transaction.transaction_id} created "
-                f"and analysed. "
-                f"Fraud prediction: "
-                f"{prediction.prediction if prediction else 'Unavailable'}."
-                ),
-        )
-    def perform_update(self, serializer):
-        transaction = serializer.save()
-
-        create_audit_log(
-            self.request,
-            (
-                f"Transaction {transaction.transaction_id} updated by "
-                f"User {self.request.user.user_id}."
+                f"Transaction {transaction.transaction_id} created and screened. "
+                f"Model: {prediction.model_version}. "
+                f"Flagged: {prediction.prediction}."
             ),
         )
 
-    def perform_destroy(self, instance):
-        transaction_id = instance.transaction_id
-
-        instance.delete()
-
-        create_audit_log(
-            self.request,
-            (
-                f"Transaction {transaction_id} deleted by "
-                f"User {self.request.user.user_id}."
-            ),
-        )
 
 # ============================================================
 # FRAUD / ANOMALY PREDICTION
 # ============================================================
 
-class FraudPredictionViewSet(viewsets.ModelViewSet):
+class FraudPredictionViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = FraudPrediction.objects.all()
     serializer_class = FraudPredictionSerializer
     permission_classes = [IsAdminManagerOrAnalyst]
@@ -310,11 +293,11 @@ class FraudPredictionViewSet(viewsets.ModelViewSet):
 # FINANCIAL FORECAST
 # ============================================================
 
-class FinancialForecastViewSet(viewsets.ModelViewSet):
+class FinancialForecastViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = FinancialForecast.objects.all().order_by("forecast_month")
     serializer_class = FinancialForecastSerializer
-    permission_classes = [IsAdminManagerOrAnalyst]
+    permission_classes = [IsAdminOrAnalyst]
 
     # other methods...
 
@@ -322,7 +305,7 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
         detail=False,
         methods=["post"],
         url_path="generate",
-        permission_classes=[IsAdminOrManager],
+        permission_classes=[IsAdmin],
     )
 
     def generate(self, request):
@@ -335,9 +318,9 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
         try:
             horizon = int(horizon)
 
-            if horizon <= 0:
+            if horizon <= 0 or horizon > 24:
                 return Response(
-                    {"error": "Horizon must be greater than zero."},
+                    {"error": "Horizon must be between 1 and 24 months."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
@@ -359,35 +342,38 @@ class FinancialForecastViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-            FinancialForecast.objects.all().delete()
+            # Do not delete previous forecasts unless the full replacement succeeds.
+            with db_transaction.atomic():
+                FinancialForecast.objects.all().delete()
 
-            forecast_objects = [
-                FinancialForecast(
-                    forecast_month=item["forecast_month"],
-                    predicted_income=item["predicted_income"],
-                    predicted_expense=item["predicted_expense"],
-                    generated_at=timezone.now(),
+                forecast_objects = [
+                    FinancialForecast(
+                        forecast_month=item["forecast_month"],
+                        predicted_income=item["predicted_income"],
+                        predicted_expense=item["predicted_expense"],
+                        generated_at=timezone.now(),
+                    )
+                    for item in forecasts
+                ]
+
+                saved_forecasts = FinancialForecast.objects.bulk_create(
+                    forecast_objects
                 )
-                for item in forecasts
-            ]
-
-            saved_forecasts = FinancialForecast.objects.bulk_create(
-                forecast_objects
-            )
-            create_audit_log(
-                request,
-                (
-                    f"Generated {len(saved_forecasts)} financial forecast records "
-                    f"for {horizon} months."
-                ),
-            )
-            serializer = self.get_serializer(
-                saved_forecasts,
-                many=True,
-            )
+                create_audit_log(
+                    request,
+                    (
+                        f"Generated {len(saved_forecasts)} financial forecast records "
+                        f"for {horizon} months."
+                    ),
+                )
+                serializer = self.get_serializer(
+                    saved_forecasts,
+                    many=True,
+                )
+                response_data = serializer.data
 
             return Response(
-                serializer.data,
+                response_data,
                 status=status.HTTP_201_CREATED,
             )
 
@@ -420,6 +406,8 @@ class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
         if user.role.role_name == "Manager":
             return AuditLog.objects.filter(
                 user__branch=user.branch
+            ).exclude(
+                user__role__role_name="Admin"
             ).order_by("-log_time")
 
         return AuditLog.objects.none()
@@ -457,17 +445,118 @@ class AlertViewSet(viewsets.ModelViewSet):
         # Unknown role → no alerts
         return Alert.objects.none()
 
-    def perform_update(self, serializer):
-        alert = serializer.save()
+    def create(self, request, *args, **kwargs):
+        # Alerts are written only by transaction-screening services.
+        # Do not permit fabricating predictions/alerts from the UI/API.
+        raise MethodNotAllowed("POST", detail="Alerts are generated by transaction screening only.")
 
+    def update(self, request, *args, **kwargs):
+        raise MethodNotAllowed("PUT", detail="Only the review action is supported.")
+
+    def destroy(self, request, *args, **kwargs):
+        raise MethodNotAllowed("DELETE", detail="Original alert evidence cannot be deleted.")
+
+    @db_transaction.atomic
+    def partial_update(self, request, *args, **kwargs):
+        """Audited, atomic resolution. Original evidence is immutable."""
+        allowed = {"is_resolved", "resolution_note"}
+        if set(request.data) != allowed or request.data.get("is_resolved") is not True:
+            raise ValidationError({
+                "detail": "Supply only is_resolved=true and resolution_note."
+            })
+        note = request.data.get("resolution_note")
+        if not isinstance(note, str) or not 10 <= len(note.strip()) <= 500:
+            raise ValidationError({
+                "resolution_note": "A review explanation of 10–500 characters is required."
+            })
+
+        # get_object() is scoped by get_queryset(), so managers cannot
+        # resolve an alert from another branch.
+        alert = self.get_object()
+        current = Alert.objects.select_for_update().get(pk=alert.pk)
+        if current.is_resolved:
+            raise ValidationError({"detail": "This alert was already resolved."})
+        current.is_resolved = True
+        current.save(update_fields=["is_resolved"])
         create_audit_log(
-            self.request,
+            request,
             (
-                f"Alert {alert.alert_id} updated for "
-                f"Transaction {alert.transaction_id}. "
-                f"Resolved: {alert.is_resolved}."
+                f"Alert {current.alert_id} resolved for Transaction "
+                f"{current.transaction_id}. Reason: {note.strip()}"
             ),
         )
+        return Response(AlertSerializer(current).data, status=status.HTTP_200_OK)
+
+
+class OperationalSnapshotView(APIView):
+    """Small, permission-scoped operational snapshot for real workflow UI.
+
+    Never return the full 50,000-row transaction table to a browser.
+    Manager branch restrictions apply to every returned collection.
+    """
+
+    permission_classes = [IsAdminOrManager]
+
+    def get(self, request):
+        user = request.user
+        branch_filter = (
+            {} if user.role.role_name == "Admin"
+            else {"user__branch": user.branch}
+        )
+        accounts = Account.objects.filter(**branch_filter).order_by("-account_id")
+        transactions = Transaction.objects.filter(
+            **(
+                {} if user.role.role_name == "Admin"
+                else {"account__user__branch": user.branch}
+            )
+        ).order_by("-transaction_id")
+        alerts = Alert.objects.filter(
+            **(
+                {} if user.role.role_name == "Admin"
+                else {"transaction__account__user__branch": user.branch}
+            )
+        ).order_by("-alert_id")
+        audit = AuditLog.objects.filter(
+            **(
+                {} if user.role.role_name == "Admin"
+                else {"user__branch": user.branch}
+            )
+        )
+        if user.role.role_name == "Manager":
+            # An Admin's home branch is not the same as the scope of the
+            # transaction the Admin operated on; exclude Admin log actions.
+            audit = audit.exclude(user__role__role_name="Admin")
+        audit = audit.order_by("-log_id")
+        account = request.query_params.get("account_id")
+        if account:
+            try:
+                account_id = int(account)
+            except (TypeError, ValueError):
+                raise ValidationError({"account_id": "Must be an integer."})
+            if not accounts.filter(account_id=account_id).exists():
+                raise PermissionDenied("Account is outside your authorized scope.")
+            transactions = transactions.filter(account_id=account_id)
+            alerts = alerts.filter(transaction__account_id=account_id)
+        recent_transactions = list(transactions[:30])
+        ids = [tx.pk for tx in recent_transactions]
+        predictions = FraudPrediction.objects.filter(
+            transaction_id__in=ids
+        ).order_by("-prediction_id")
+        return Response({
+            "accounts": AccountSerializer(accounts[:35], many=True).data,
+            "transactions": TransactionSerializer(recent_transactions, many=True).data,
+            "predictions": FraudPredictionSerializer(predictions, many=True).data,
+            "alerts": AlertSerializer(alerts[:35], many=True).data,
+            "audit_logs": AuditLogSerializer(audit[:35], many=True).data,
+            "scope": {
+                "role": user.role.role_name,
+                "branch_id": user.branch_id,
+                "account_filter": account,
+                "max_list_items": 35,
+            },
+        })
+
+
 # ============================================================
 # JOURNAL ENTRY
 # ============================================================
@@ -508,7 +597,7 @@ class DashboardView(APIView):
     - System information
     """
 
-    permission_classes = [IsAdminManagerOrAnalyst]
+    permission_classes = [IsAdminOrAnalyst]
 
     def get(self, request):
 
@@ -553,7 +642,7 @@ class GeminiReportView(APIView):
     - forecast values
     """
 
-    permission_classes = [IsAdminManagerOrAnalyst]
+    permission_classes = [IsAdminOrAnalyst]
 
     def get(self, request):
 
@@ -596,6 +685,41 @@ class GeminiReportView(APIView):
 # ============================================================
 # HEALTH CHECK
 # ============================================================
+
+class LogoutView(APIView):
+    """Revoke the presented DRF token, rather than just clearing the browser."""
+
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        token = request.auth
+        if not isinstance(token, Token):
+            return Response(
+                {"detail": "Token authentication is required for logout."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
+        token.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CurrentUserView(APIView):
+    """Authenticated identity for the demo UI; never expose token or password."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        return Response({
+            "user_id": user.pk,
+            "username": user.username,
+            "role": user.role.role_name if user.role else None,
+            "branch": user.branch.branch_name if user.branch else None,
+            "can_run_demo": bool(user.role and user.role.role_name == "Admin"),
+            "can_use_operations": bool(user.role and user.role.role_name in ("Admin", "Manager")),
+            "can_view_global_analytics": bool(user.role and user.role.role_name in ("Admin", "Analyst")),
+        })
+
 
 class HealthCheckView(APIView):
     """

@@ -2,8 +2,8 @@ from django.db.models import Sum
 from django.db.models.functions import TruncMonth
 
 from finance.models import Transaction, FinancialForecast
-from finance.services.fraud_service import evaluate_fraud_models
-from finance.services.forecast_service import evaluate_forecast_models
+from finance.services.research_scope import research_transactions
+from finance.services.cached_research import get_cached_research_evaluations
 
 
 def get_dashboard_data():
@@ -79,7 +79,7 @@ def get_dashboard_data():
     # ============================================================
 
     monthly_rows = (
-        Transaction.objects
+        research_transactions(Transaction.objects.all())
         .annotate(
             month=TruncMonth("transaction_time")
         )
@@ -164,13 +164,14 @@ def get_dashboard_data():
     # 5. VERIFIED FRAUD MODEL EVALUATION
     # ============================================================
 
-    fraud_evaluation = evaluate_fraud_models()
+    research = get_cached_research_evaluations()
+    fraud_evaluation = research["fraud_evaluation"]
 
     # ============================================================
     # 6. VERIFIED FORECAST MODEL EVALUATION
     # ============================================================
 
-    forecast_evaluation = evaluate_forecast_models()
+    forecast_evaluation = research["forecast_evaluation"]
 
     # ============================================================
     # 7. SAVED 2026 FORECASTS
@@ -213,35 +214,17 @@ def get_dashboard_data():
     # 8. FORECAST SYSTEM INFORMATION
     # ============================================================
 
-    forecast_dataset = (
-        forecast_evaluation.get(
-            "dataset",
-            {}
-        )
-    )
-
-    historical_months = int(
-        forecast_dataset.get(
-            "months",
-            24
-        )
-    )
-
-    training_months = int(
-        forecast_dataset.get(
-            "training_months",
-            12
-        )
-    )
-
+    # Derive dates and sample counts from the actual evaluation, not defaults.
+    historical_months = int(forecast_evaluation.get("number_of_months") or 0)
     validation_months = int(
-        forecast_dataset.get(
-            "validation_months",
-            12
-        )
+        forecast_evaluation.get("income", {})
+        .get("validation", {})
+        .get("observations") or 0
     )
-
-    forecast_horizon = 12
+    training_months = (
+        historical_months - validation_months if validation_months else 0
+    )
+    forecast_horizon = len(forecast_data)
 
     # ============================================================
     # 9. FINAL RESPONSE
@@ -274,6 +257,7 @@ def get_dashboard_data():
         "forecasts": forecast_data,
 
         "fraud_evaluation": fraud_evaluation,
+        "research_cache": research["cache"],
 
         "forecast_evaluation": forecast_evaluation,
 

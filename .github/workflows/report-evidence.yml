@@ -1,0 +1,79 @@
+name: Academic evidence capture
+
+on:
+  push:
+    branches:
+      - rescue/submission-critical-fixes
+    paths:
+      - .github/workflows/report-evidence.yml
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  capture-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: finance_evidence
+          POSTGRES_USER: finance_evidence
+          POSTGRES_PASSWORD: test_only_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U finance_evidence -d finance_evidence"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DJANGO_SECRET_KEY: temporary-ci-key-not-for-production
+      DEBUG: "False"
+      DB_NAME: finance_evidence
+      DB_USER: finance_evidence
+      DB_PASSWORD: test_only_password
+      DB_HOST: 127.0.0.1
+      DB_PORT: "5432"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: django_backend/requirements.txt
+      - name: Install backend
+        run: python -m pip install -r django_backend/requirements.txt
+      - name: Apply PostgreSQL migrations
+        working-directory: django_backend
+        run: python manage.py migrate --noinput
+      - name: Create deterministic synthetic 50,000-transaction dataset
+        working-directory: django_backend
+        run: python manage.py bootstrap_demo_data --seed 42 --transactions 50000 --anomalies 500
+      - name: Capture live, reproducible fraud and forecast metrics
+        working-directory: django_backend
+        run: python manage.py export_submission_evidence --output evidence/submission_metrics.json
+      - name: Verify expected dataset size
+        run: |
+          python - <<'PY'
+          import json
+          p = "django_backend/evidence/submission_metrics.json"
+          data = json.load(open(p, encoding="utf-8"))
+          counts = data["counts"]
+          assert counts["transactions"] == 50000, counts
+          assert counts["ground_truth_anomalies"] == 500, counts
+          assert len(data["forecast_months"]) == 12, data["forecast_months"]
+          print("Dataset checks passed")
+          PY
+      - name: Upload verified submission evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: academic-submission-metrics
+          path: django_backend/evidence/submission_metrics.json
+          if-no-files-found: error

@@ -1,0 +1,25 @@
+.ops-root {max-width:1100px;margin:32px auto 90px;padding:0 20px;color:#172e45;font-family:Inter,system-ui,sans-serif;}
+.ops-hero {margin-bottom:28px}.ops-hero p{font-size:11px;letter-spacing:.14em;font-weight:800;color:#2154a7}
+.ops-hero h1{font-size:32px;margin:6px 0}.ops-hero span{color:#66798e;font-size:13px}
+.ops-card{background:white;border:1px solid #dde5ee;border-radius:16px;padding:23px;margin:17px 0;box-shadow:0 4px 12px rgba(18,42,78,.03)}
+.ops-card h2{font-size:19px;margin:0 0 17px}.ops-card p,.ops-card small{font-size:12px;line-height:1.6;color:#67778b}
+.ops-card label{font-size:13px;font-weight:700;display:block;margin:10px 0}
+.ops-root input,.ops-root select,.ops-root textarea{font:inherit;font-size:13px;padding:11px 12px;border:1px solid #ccd9e8;border-radius:9px;background:white;color:#18344e;width:100%;max-width:100%}
+.ops-root textarea {resize:vertical;min-height:65px}
+.ops-root button{border:1px solid #2860bd;background:#2159bd;color:white;font-size:13px;border-radius:9px;padding:11px 15px;font-weight:700;cursor:pointer}
+.ops-root button:disabled{opacity:.5;cursor:not-allowed}
+.ops-actions{display:flex;gap:13px;flex-wrap:wrap}.ops-actions select{flex:1;min-width:260px}
+.ops-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:17px;row-gap:4px}.ops-form button{grid-column:1/-1;justify-self:start;margin-top:12px}
+.ops-table-scroll{width:100%;overflow-x:auto}.ops-root table{border-collapse:collapse;width:100%;font-size:12px;text-align:left}
+.ops-root th,.ops-root td{padding:11px 9px;border-bottom:1px solid #e9edf2;white-space:nowrap}.ops-root th{background:#f4f7fa}
+.ops-alert-list{display:flex;flex-direction:column;gap:10px;margin-top:16px}
+.ops-alert{display:flex;justify-content:space-between;align-items:center;gap:12px;border:1px solid #e3ebf3;border-radius:12px;padding:15px}
+.ops-alert strong{font-size:13px}.ops-alert p{margin:7px 0 2px}.ops-alert small{font-weight:700}
+.ops-audit-list{max-height:360px;overflow-y:auto;font-size:12px}
+.ops-audit-list>div{display:flex;gap:20px;padding:10px;border-bottom:1px solid #e8edf3;line-height:1.5}
+.ops-audit-list time{width:185px;flex-shrink:0;color:#6f8196}
+.ops-notice{border-radius:10px;padding:14px 17px;font-size:13px;margin-bottom:15px}
+.ops-error{background:#fff2f2;color:#9b2525;border:1px solid #edbdc0}
+.ops-success{background:#f0fff4;color:#176342;border:1px solid #abe4be}
+.ops-disclaimer{margin-top:14px}
+@media(max-width:650px){.ops-root{padding:0 12px}.ops-form{grid-template-columns:1fr}.ops-alert{align-items:flex-start;flex-direction:column}.ops-audit-list>div{flex-direction:column;gap:3px}}

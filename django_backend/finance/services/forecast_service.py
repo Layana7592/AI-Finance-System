@@ -8,6 +8,7 @@ from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.stattools import adfuller
 
 from finance.models import Transaction
+from .research_scope import research_transactions
 
 
 # ============================================================
@@ -26,10 +27,14 @@ def get_monthly_transaction_data():
 
     Transfer transactions are excluded because the dataset
     does not contain enough information to determine direction.
+
+    This is the *frozen Jan 2024–Dec 2025 research sample*, not an ongoing
+    live banking forecast. Later presentation events cannot lengthen the
+    historical period or alter reported model comparisons.
     """
 
     transactions = (
-        Transaction.objects
+        research_transactions(Transaction.objects.all())
         .values("transaction_time", "transaction_type")
         .annotate(total_amount=Sum("amount"))
         .order_by("transaction_time")
@@ -85,6 +90,17 @@ def get_monthly_transaction_data():
         .asfreq("MS", fill_value=0)
     )
 
+    # Both targets must refer to the same calendar months; zeros represent
+    # months with no transactions of that type.
+    if not income.empty and not expense.empty:
+        calendar = pd.date_range(
+            start=min(income.index.min(), expense.index.min()),
+            end=max(income.index.max(), expense.index.max()),
+            freq="MS",
+        )
+        income = income.reindex(calendar, fill_value=0)
+        expense = expense.reindex(calendar, fill_value=0)
+
     return {
         "income": income.astype(float),
         "expense": expense.astype(float),
@@ -108,7 +124,15 @@ def check_stationarity(series):
             "message": "Not enough observations for stationarity test."
         }
 
-    result = adfuller(series)
+    try:
+        result = adfuller(series)
+    except (ValueError, TypeError, ZeroDivisionError):
+        return {
+            "stationary": None,
+            "adf_statistic": None,
+            "p_value": None,
+            "message": "Stationarity test unavailable for this series.",
+        }
 
     adf_statistic = float(result[0])
     p_value = float(result[1])
@@ -198,6 +222,14 @@ def calculate_metrics(actual, predicted):
     actual = np.asarray(actual, dtype=float)
     predicted = np.asarray(predicted, dtype=float)
 
+    if (
+        len(actual) == 0
+        or len(actual) != len(predicted)
+        or not np.all(np.isfinite(actual))
+        or not np.all(np.isfinite(predicted))
+    ):
+        return {"mae": None, "rmse": None, "mape": None}
+
     mae = np.mean(np.abs(actual - predicted))
 
     rmse = np.sqrt(
@@ -234,100 +266,131 @@ def calculate_metrics(actual, predicted):
 # 6. EXPANDING-WINDOW VALIDATION
 # ============================================================
 
-def expanding_window_validation(
-    series,
-    initial_train_size=12,
-    horizon=1,
-):
-    """
-    Expanding-window one-step-ahead validation.
-
-    Example:
-
-    Train: Jan-Dec
-    Predict: Jan
-
-    Train: Jan-Jan
-    Predict: Feb
-
-    Train: Jan-Feb
-    Predict: Mar
-
-    ...
-    """
-
-    actual_values = []
-    seasonal_predictions = []
-    sarima_predictions = []
-
-    total_points = len(series)
-
-    if total_points <= initial_train_size:
+def _forecast_error_analysis(rows):
+    """Explain the size, direction and timing of measured one-step errors."""
+    if not rows:
         return {
-            "seasonal_naive": calculate_metrics([], []),
-            "sarima": calculate_metrics([], []),
-            "observations": 0,
+            "observations": 0, "mean_signed_error": None,
+            "median_absolute_error": None, "max_absolute_error": None,
+            "worst_windows": [],
+        }
+    errors = np.asarray([row["predicted"] - row["actual"] for row in rows], dtype=float)
+    absolute = np.abs(errors)
+    worst = sorted(
+        rows, key=lambda row: abs(row["predicted"] - row["actual"]), reverse=True
+    )[:3]
+    return {
+        "observations": len(rows),
+        "mean_signed_error": round(float(np.mean(errors)), 2),
+        "median_absolute_error": round(float(np.median(absolute)), 2),
+        "max_absolute_error": round(float(np.max(absolute)), 2),
+        "worst_windows": worst,
+    }
+
+
+def expanding_window_validation(series, initial_train_size=12, horizon=1):
+    """Expanding-window evaluation with legacy and STRICTLY PAIRED metrics.
+
+    'seasonal_naive' retains all available baseline windows even when SARIMA
+    diverges, preserving the original academic experiment and transparency.
+    'paired' evaluates BOTH models only on the identical timestamps where
+    SARIMA completed successfully; SARIMA failures are kept in the timeline.
+    Every row is traceable to a validation month, with signed residuals
+    calculated as predicted minus observed.
+    """
+    baseline_rows = []
+    paired_baseline_rows = []
+    sarima_rows = []
+    failures = []
+    all_windows = []
+    if len(series) <= initial_train_size:
+        empty = calculate_metrics([], [])
+        return {
+            "seasonal_naive": empty, "sarima": empty,
+            "observations": 0, "sarima_observations": 0,
+            "paired": {
+                "seasonal_naive": empty, "sarima": empty,
+                "observations": 0, "baseline_error_analysis": _forecast_error_analysis([]),
+                "sarima_error_analysis": _forecast_error_analysis([]),
+            },
+            "validation_windows": [],
+            "sarima_failures": [],
         }
 
-    for end_index in range(
-        initial_train_size,
-        total_points,
-        horizon,
-    ):
-
+    for end_index in range(initial_train_size, len(series), horizon):
         train = series.iloc[:end_index]
-
-        test = series.iloc[
-            end_index:end_index + horizon
-        ]
-
-        if len(test) == 0:
+        test = series.iloc[end_index:end_index + horizon]
+        if test.empty:
             break
 
-        # ----------------------------
-        # Seasonal Naive
-        # ----------------------------
-
-        seasonal_prediction = seasonal_naive_forecast(
-            train,
-            len(test),
-            season_length=12,
+        naive = np.asarray(
+            seasonal_naive_forecast(train, len(test), season_length=12),
+            dtype=float,
         )
+        if len(naive) != len(test) or not np.all(np.isfinite(naive)):
+            raise ValueError("Seasonal-Naive generated invalid validation values.")
+        actual = np.asarray(test.values, dtype=float)
+        dates = [
+            value.date().isoformat() if hasattr(value, "date") else str(value)
+            for value in test.index
+        ]
+        for date, observed, predicted in zip(dates, actual, naive):
+            baseline_rows.append({
+                "month": date, "actual": float(observed),
+                "predicted": float(predicted),
+            })
 
-        # ----------------------------
-        # SARIMA
-        # ----------------------------
-
+        sarima = None
+        reason = None
         try:
-            sarima_prediction = sarima_forecast(
-                train,
-                len(test),
-            )
-        except Exception:
-            # If SARIMA cannot fit a particular
-            # expanding window, skip that window.
+            sarima = np.asarray(sarima_forecast(train, len(test)), dtype=float)
+            if len(sarima) != len(test) or not np.all(np.isfinite(sarima)):
+                reason = "non_finite_or_wrong_horizon"
+        except Exception as exc:
+            reason = type(exc).__name__
+
+        if reason is not None:
+            for date, observed, predicted in zip(dates, actual, naive):
+                failures.append({"month": date, "reason": reason})
+                all_windows.append({
+                    "month": date, "observed": float(observed),
+                    "seasonal_naive": float(predicted),
+                    "sarima": None, "sarima_status": "failed",
+                })
             continue
 
-        actual_values.extend(test.values)
+        for date, observed, nv, sv in zip(dates, actual, naive, sarima):
+            paired_baseline_rows.append({
+                "month": date, "actual": float(observed), "predicted": float(nv),
+            })
+            sarima_rows.append({
+                "month": date, "actual": float(observed), "predicted": float(sv),
+            })
+            all_windows.append({
+                "month": date, "observed": float(observed),
+                "seasonal_naive": float(nv), "sarima": float(sv),
+                "sarima_status": "success",
+            })
 
-        seasonal_predictions.extend(
-            seasonal_prediction
-        )
-
-        sarima_predictions.extend(
-            sarima_prediction
+    def metrics(rows):
+        return calculate_metrics(
+            [x["actual"] for x in rows], [x["predicted"] for x in rows]
         )
 
     return {
-        "seasonal_naive": calculate_metrics(
-            actual_values,
-            seasonal_predictions,
-        ),
-        "sarima": calculate_metrics(
-            actual_values,
-            sarima_predictions,
-        ),
-        "observations": len(actual_values),
+        "seasonal_naive": metrics(baseline_rows),
+        "sarima": metrics(sarima_rows),
+        "observations": len(baseline_rows),
+        "sarima_observations": len(sarima_rows),
+        "paired": {
+            "seasonal_naive": metrics(paired_baseline_rows),
+            "sarima": metrics(sarima_rows),
+            "observations": len(sarima_rows),
+            "baseline_error_analysis": _forecast_error_analysis(paired_baseline_rows),
+            "sarima_error_analysis": _forecast_error_analysis(sarima_rows),
+        },
+        "validation_windows": all_windows,
+        "sarima_failures": failures,
     }
 
 
@@ -391,6 +454,10 @@ def evaluate_forecast_models():
             "validation": {
                 "method": "Expanding-window one-step-ahead validation",
                 "observations": income_validation["observations"],
+                "sarima_observations": income_validation["sarima_observations"],
+                "sarima_failures": income_validation["sarima_failures"],
+                "windows": income_validation["validation_windows"],
+                "paired_comparison": income_validation["paired"],
             },
             "models": {
                 "seasonal_naive": income_validation["seasonal_naive"],
@@ -403,6 +470,10 @@ def evaluate_forecast_models():
             "validation": {
                 "method": "Expanding-window one-step-ahead validation",
                 "observations": expense_validation["observations"],
+                "sarima_observations": expense_validation["sarima_observations"],
+                "sarima_failures": expense_validation["sarima_failures"],
+                "windows": expense_validation["validation_windows"],
+                "paired_comparison": expense_validation["paired"],
             },
             "models": {
                 "seasonal_naive": expense_validation["seasonal_naive"],
@@ -437,7 +508,7 @@ def generate_series_forecast(series, months, selected_model):
         try:
             forecast = np.asarray(sarima_forecast(series, months), dtype=float)
             if len(forecast) == months and np.all(np.isfinite(forecast)):
-                return forecast, "sarima"
+                return np.maximum(forecast, 0), "sarima"
         except Exception:
             pass
 
@@ -447,118 +518,56 @@ def generate_series_forecast(series, months, selected_model):
     )
     if len(forecast) != months or not np.all(np.isfinite(forecast)):
         raise ValueError("Seasonal Naive produced an invalid forecast.")
-    return forecast, "seasonal_naive"
+    return np.maximum(forecast, 0), "seasonal_naive"
 
 
 def generate_forecast(months=12):
-    """
-    Generate future income and expense forecasts.
+    """Choose a validated method per series, falling back to Seasonal-Naive.
 
-    The system evaluates Seasonal Naive and SARIMA using
-    expanding-window validation and automatically selects
-    the model with the lower MAPE for each series.
+    Model selection uses MAPE where defined. SARIMA is eligible only if all
+    baseline validation windows also produced finite SARIMA predictions; a
+    partial comparison cannot justify selecting the more complex model.
     """
+    if type(months) is not int or not 1 <= months <= 24:
+        raise ValueError("Forecast horizon must be an integer from 1 to 24.")
 
     data = get_monthly_transaction_data()
-
     income = data["income"]
     expense = data["expense"]
-
     if income.empty or expense.empty:
         return []
 
-    # --------------------------------------------------
-    # VALIDATION
-    # --------------------------------------------------
-
     income_validation = expanding_window_validation(
-        income,
-        initial_train_size=13,
-        horizon=1,
+        income, initial_train_size=13, horizon=1
     )
-
     expense_validation = expanding_window_validation(
-        expense,
-        initial_train_size=13,
-        horizon=1,
+        expense, initial_train_size=13, horizon=1
     )
 
-    # --------------------------------------------------
-    # SELECT BEST MODEL
-    # --------------------------------------------------
+    def choose(validation):
+        naive_mape = validation["seasonal_naive"]["mape"]
+        sarima_mape = validation["sarima"]["mape"]
+        if validation["sarima_observations"] < validation["observations"]:
+            sarima_mape = None
+        return select_model(naive_mape, sarima_mape)
 
-    income_naive_mape = income_validation["seasonal_naive"]["mape"]
-    income_sarima_mape = income_validation["sarima"]["mape"]
-
-    expense_naive_mape = expense_validation["seasonal_naive"]["mape"]
-    expense_sarima_mape = expense_validation["sarima"]["mape"]
-
-    income_model = (
-        "seasonal_naive"
-        if income_naive_mape <= income_sarima_mape
-        else "sarima"
+    income_forecast, _income_method = generate_series_forecast(
+        income, months, choose(income_validation)
+    )
+    expense_forecast, _expense_method = generate_series_forecast(
+        expense, months, choose(expense_validation)
     )
 
-    expense_model = (
-        "seasonal_naive"
-        if expense_naive_mape <= expense_sarima_mape
-        else "sarima"
-    )
+    # Never expose invalid values to the persistence layer.
+    if not np.all(np.isfinite(income_forecast)) or not np.all(np.isfinite(expense_forecast)):
+        raise ValueError("Forecast returned non-finite values.")
 
-    # --------------------------------------------------
-    # GENERATE FORECASTS
-    # --------------------------------------------------
-
-    if income_model == "seasonal_naive":
-        income_forecast = seasonal_naive_forecast(
-            income,
-            months,
-            season_length=12,
-        )
-    else:
-        income_forecast = sarima_forecast(
-            income,
-            months,
-        )
-
-    if expense_model == "seasonal_naive":
-        expense_forecast = seasonal_naive_forecast(
-            expense,
-            months,
-            season_length=12,
-        )
-    else:
-        expense_forecast = sarima_forecast(
-            expense,
-            months,
-        )
-
-    # Prevent negative financial forecasts
-    income_forecast = np.maximum(income_forecast, 0)
-    expense_forecast = np.maximum(expense_forecast, 0)
-
-    # --------------------------------------------------
-    # BUILD RESULTS
-    # --------------------------------------------------
-
-    results = []
-
-    last_date = income.index[-1]
-
-    for i in range(1, months + 1):
-
-        forecast_date = last_date + pd.DateOffset(months=i)
-
-        results.append({
-            "forecast_month": forecast_date.date(),
-            "predicted_income": round(
-                float(income_forecast[i - 1]),
-                2,
-            ),
-            "predicted_expense": round(
-                float(expense_forecast[i - 1]),
-                2,
-            ),
-        })
-
-    return results
+    last_date = income.index[-1]  # Income/expense now share one calendar.
+    return [
+        {
+            "forecast_month": (last_date + pd.DateOffset(months=i)).date(),
+            "predicted_income": round(float(income_forecast[i - 1]), 2),
+            "predicted_expense": round(float(expense_forecast[i - 1]), 2),
+        }
+        for i in range(1, months + 1)
+    ]

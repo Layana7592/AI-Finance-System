@@ -15,10 +15,10 @@ import {
 
 import "./App.css";
 
-const API_BASE_URL = "http://127.0.0.1:8000/api";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "/api";
 
 function getApiToken() {
-  return localStorage.getItem("finance_api_token");
+  return sessionStorage.getItem("finance_api_token");
 }
 
 const INR = new Intl.NumberFormat("en-IN", {
@@ -43,6 +43,21 @@ function firstDefined(...values) {
 function numberOrZero(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+// Unlike summary counts, evaluation metrics must not invent a zero when absent.
+function metricOrNull(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function formatForecastMoney(value) {
+  return value === null ? "Unavailable" : INR.format(value);
+}
+
+function formatForecastPercent(value) {
+  return value === null ? "Unavailable" : `${value.toFixed(2)}%`;
 }
 
 function formatMoney(value) {
@@ -296,32 +311,34 @@ function extractDashboard(payload) {
     const seasonalNaive = modelData?.models?.seasonal_naive ?? {};
     const sarima = modelData?.models?.sarima ?? {};
 
-    const seasonalNaiveMae = numberOrZero(seasonalNaive?.mae);
-    const sarimaMae = numberOrZero(sarima?.mae);
+    const naiveMape = metricOrNull(seasonalNaive?.mape);
+    const sarimaMape = metricOrNull(sarima?.mape);
+    const baselineWindows = modelData?.validation?.observations;
+    const sarimaWindows = modelData?.validation?.sarima_observations;
+    const sarimaComplete =
+      baselineWindows === undefined ||
+      (baselineWindows > 0 && sarimaWindows === baselineWindows);
 
-    let bestModel = firstDefined(
-      modelData?.best_model,
-      modelData?.bestModel
-    );
-
-    if (!bestModel && seasonalNaiveMae > 0 && sarimaMae > 0) {
-      bestModel =
-        seasonalNaiveMae <= sarimaMae
-          ? "Seasonal-Naive"
-          : "SARIMA";
+    let bestModel = "Unavailable";
+    if (naiveMape !== null) {
+      bestModel = "Seasonal-Naive";
+    }
+    if (sarimaMape !== null && sarimaComplete &&
+        (naiveMape === null || sarimaMape < naiveMape)) {
+      bestModel = "SARIMA";
     }
 
     return {
-      bestModel: bestModel || "Not specified",
+      bestModel,
       seasonalNaive: {
-        mae: seasonalNaiveMae,
-        rmse: numberOrZero(seasonalNaive?.rmse),
-        mape: numberOrZero(seasonalNaive?.mape),
+        mae: metricOrNull(seasonalNaive?.mae),
+        rmse: metricOrNull(seasonalNaive?.rmse),
+        mape: metricOrNull(seasonalNaive?.mape),
       },
       sarima: {
-        mae: sarimaMae,
-        rmse: numberOrZero(sarima?.rmse),
-        mape: numberOrZero(sarima?.mape),
+        mae: metricOrNull(sarima?.mae),
+        rmse: metricOrNull(sarima?.rmse),
+        mape: metricOrNull(sarima?.mape),
       },
     };
   };
@@ -714,7 +731,7 @@ function ForecastEvaluationCard({
         </div>
 
         <span className="winner-badge">
-          Lower MAE: {bestModel}
+          Forecast model (validation MAPE): {bestModel}
         </span>
       </div>
 
@@ -724,17 +741,17 @@ function ForecastEvaluationCard({
         <div className="evaluation-grid">
           <div>
             <span>MAE</span>
-            <strong>{formatMoney(seasonalNaive.mae)}</strong>
+            <strong>{formatForecastMoney(seasonalNaive.mae)}</strong>
           </div>
 
           <div>
             <span>RMSE</span>
-            <strong>{formatMoney(seasonalNaive.rmse)}</strong>
+            <strong>{formatForecastMoney(seasonalNaive.rmse)}</strong>
           </div>
 
           <div>
             <span>MAPE</span>
-            <strong>{formatPercent(seasonalNaive.mape)}</strong>
+            <strong>{formatForecastPercent(seasonalNaive.mape)}</strong>
           </div>
         </div>
       </div>
@@ -745,17 +762,17 @@ function ForecastEvaluationCard({
         <div className="evaluation-grid">
           <div>
             <span>MAE</span>
-            <strong>{formatMoney(sarima.mae)}</strong>
+            <strong>{formatForecastMoney(sarima.mae)}</strong>
           </div>
 
           <div>
             <span>RMSE</span>
-            <strong>{formatMoney(sarima.rmse)}</strong>
+            <strong>{formatForecastMoney(sarima.rmse)}</strong>
           </div>
 
           <div>
             <span>MAPE</span>
-            <strong>{formatPercent(sarima.mape)}</strong>
+            <strong>{formatForecastPercent(sarima.mape)}</strong>
           </div>
         </div>
       </div>
@@ -1072,7 +1089,7 @@ function App() {
           <p>{dashboardError}</p>
 
           <p className="error-help">
-            Make sure Django is running at{" "}
+            Make sure the Django backend is running. API base:{" "}
             <code>
               http://127.0.0.1:8000/
             </code>

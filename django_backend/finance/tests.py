@@ -1060,6 +1060,13 @@ class DemoDataTests(TestCase):
             50000
         )
 
+    def test_initial_bootstrap_persists_twelve_months_of_forecasts(self):
+        """A fresh clone must not need a second bootstrap to obtain forecasts."""
+        self.assertEqual(FinancialForecast.objects.count(), 12)
+        self.assertEqual(
+            FinancialForecast.objects.values("forecast_month").distinct().count(), 12
+        )
+
     def test_users_cover_multiple_branches(self):
         """Users must belong to multiple branches."""
 
@@ -1182,13 +1189,13 @@ class CoreAPITests(TestCase):
 # ============================================================
 
 class ForecastGenerationTests(TestCase):
-    """Verify that forecast generation creates 12 rows."""
+    """Verify institution-wide admin forecast generation creates 12 rows."""
 
     @classmethod
     def setUpTestData(cls):
 
         role, _ = Role.objects.get_or_create(
-            role_name="Manager"
+            role_name="Admin"
         )
 
         branch = Branch.objects.create(

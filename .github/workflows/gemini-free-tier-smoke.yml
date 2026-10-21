@@ -1,0 +1,31 @@
+name: Gemini Free Tier Connectivity (one short request)
+
+on:
+  push:
+    branches: [rescue/submission-critical-fixes]
+    paths:
+      - .github/workflows/gemini-free-tier-smoke.yml
+      - scripts/gemini_free_tier_smoke.py
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  connectivity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      GEMINI_PROBE_OUTPUT: evidence/gemini_free_tier_check.json
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test exact configured Gemini model with one short request
+        run: python scripts/gemini_free_tier_smoke.py
+      - name: Upload sanitized status, even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gemini-free-tier-connectivity
+          path: evidence/gemini_free_tier_check.json
+          if-no-files-found: warn

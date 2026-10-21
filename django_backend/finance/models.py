@@ -370,3 +370,79 @@ class JournalEntry(models.Model):
 
     def __str__(self):
         return str(self.journal_entry_id)
+
+# ==================================================
+# ISOLATED DOUBLE-ENTRY SYNTHETIC LEDGER — NOT THE
+# ORIGINAL TRANSACTIONS OR LEGACY JournalEntry TABLE
+# ==================================================
+
+class SyntheticLedgerAccount(models.Model):
+    """Debit-normal wallet or signed system offset for an education simulator."""
+
+    code = models.CharField(max_length=64, unique=True)
+    account = models.OneToOneField(
+        Account, null=True, blank=True,
+        on_delete=models.PROTECT, related_name="synthetic_wallet",
+    )
+    balance = models.DecimalField(max_digits=18, decimal_places=2, default=0)
+    is_system_clearing = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "synthetic_ledger_accounts"
+
+    def __str__(self):
+        return self.code
+
+
+class SyntheticLedgerPosting(models.Model):
+    """Atomic, uniquely identified posted transaction or one-time reversal."""
+
+    idempotency_key = models.CharField(max_length=120, unique=True)
+    operation = models.CharField(max_length=24)
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+    source_account = models.ForeignKey(
+        Account, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="synthetic_outgoing_postings",
+    )
+    destination_account = models.ForeignKey(
+        Account, on_delete=models.PROTECT, null=True, blank=True,
+        related_name="synthetic_incoming_postings",
+    )
+    actor = models.ForeignKey(User, on_delete=models.PROTECT)
+    memo = models.CharField(max_length=500, blank=True)
+    request_fingerprint = models.CharField(max_length=64)
+    posted_at = models.DateTimeField(auto_now_add=True)
+    reversal_of = models.OneToOneField(
+        "self", on_delete=models.PROTECT, null=True, blank=True,
+        related_name="reversed_by",
+    )
+
+    class Meta:
+        db_table = "synthetic_ledger_postings"
+
+    def __str__(self):
+        return f"{self.pk}: {self.operation}"
+
+
+class SyntheticLedgerLine(models.Model):
+    """Posted Dr/Cr lines; no public mutation endpoints."""
+
+    posting = models.ForeignKey(
+        SyntheticLedgerPosting, on_delete=models.PROTECT,
+        related_name="lines",
+    )
+    ledger_account = models.ForeignKey(
+        SyntheticLedgerAccount, on_delete=models.PROTECT,
+        related_name="posted_lines",
+    )
+    side = models.CharField(max_length=2, choices=[("DR", "Debit"), ("CR", "Credit")])
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+
+    class Meta:
+        db_table = "synthetic_ledger_lines"
+        constraints = [
+            models.CheckConstraint(condition=models.Q(amount__gt=0), name="ledger_line_gt_zero"),
+        ]
+
+    def __str__(self):
+        return f"{self.posting_id}:{self.side}:{self.amount}"

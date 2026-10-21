@@ -1,0 +1,48 @@
+.demo-root { min-height:100vh; background:#f4f6fa; color:#142438; font-family:Inter,system-ui,sans-serif; }
+.demo-login-layout { min-height:100vh; display:grid;place-items:center; background:linear-gradient(145deg,#e9eef8,#f6f8fb);padding:24px; }
+.demo-login { width:min(440px,100%); background:#fff; padding:38px; border-radius:22px; box-shadow:0 14px 60px rgba(21,42,66,.10); display:flex; flex-direction:column; gap:13px; }
+.demo-brand, .demo-eyebrow {font-size:12px;letter-spacing:.13em;font-weight:800;color:#245fd0;text-transform:uppercase;}
+.demo-login h1 {font-size:31px; letter-spacing:-.035em; margin:4px 0 0;}
+.demo-login p {color:#627185;line-height:1.55;margin:0 0 14px;}
+.demo-login label {font-weight:700;font-size:13px;}
+.demo-login input {padding:14px;border:1px solid #c9d4e4;border-radius:10px;color:#1a2a40;background:#fff;}
+.demo-login input:focus {outline:3px solid #b9d3ff;border-color:#245fd0;}
+.demo-login button,.demo-start {padding:14px 20px;border:0;border-radius:11px;background:#2055b8;color:white;font-weight:800;}
+.demo-login small {color:#728195;line-height:1.6;}
+.demo-nav {min-height:72px;background:#fff;border-bottom:1px solid #e1e7f0;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 28px;flex-wrap:wrap;position:sticky;top:0;z-index:40;}
+.demo-nav strong {font-size:17px;letter-spacing:-.025em;}
+.demo-nav strong span {font-size:12px;font-weight:500;color:#637388;}
+.demo-nav-right {display:flex;gap:9px;align-items:center;flex-wrap:wrap;}
+.demo-nav button {border:1px solid #d2dded;background:white;color:#183451;padding:9px 12px;border-radius:9px;font-size:12px;font-weight:700;}
+.demo-nav button[aria-pressed="true"] {background:#e6f0ff;border-color:#a4c6ff;color:#174daf;}
+.demo-identity {color:#61738b;font-size:12px;padding:0 8px;}
+.demo-main {width:min(1050px,calc(100% - 36px));margin:40px auto 80px;}
+.demo-heading {display:flex;justify-content:space-between;gap:18px;align-items:flex-start;flex-wrap:wrap;}
+.demo-heading h1 {font-size:clamp(28px,4vw,42px);letter-spacing:-.05em;margin:9px 0;}
+.demo-heading p:not(.demo-eyebrow){font-size:14px;color:#5c6e85;}
+.demo-timer {min-width:170px;border:1px solid #d8e1ed;border-radius:16px;background:white;padding:17px 20px;display:flex;flex-direction:column;gap:4px;}
+.demo-timer span,.demo-timer small {font-size:12px;color:#62768c;}
+.demo-timer strong {font-size:27px;font-variant-numeric:tabular-nums;}
+.demo-actions {margin:24px 0;display:flex;align-items:center;flex-wrap:wrap;gap:15px;}
+.demo-actions span {font-size:12px;color:#6b7d91;}
+.demo-start:disabled {opacity:.65;cursor:progress;}
+.demo-step-list {display:grid;gap:10px;}
+.demo-step {background:#fff;display:flex;align-items:center;gap:18px;padding:17px;border:1px solid #e0e6f0;border-radius:13px;}
+.demo-step.running {border-color:#a7c9fe;background:#f3f8ff;}
+.demo-step.pass {border-color:#bfe9d1;background:#f6fffa;}
+.demo-step.fail {border-color:#f4b6b6;background:#fff5f5;}
+.demo-step .demo-index {font-size:12px;color:#6a80a0;background:#edf2f8;border-radius:8px;padding:8px 10px;font-weight:800;}
+.demo-step>div {flex:1;min-width:0;}
+.demo-step h2 {font-size:15px;margin:0 0 5px;}
+.demo-step p {font-size:12px;line-height:1.5;color:#63768d;margin:0;word-break:break-word;}
+.demo-step>strong {white-space:nowrap;font-size:12px;text-transform:capitalize;color:#49739f;font-variant-numeric:tabular-nums;}
+.demo-error,.demo-success {padding:13px 17px;border-radius:10px;font-size:13px;line-height:1.5;}
+.demo-error {background:#fff0f0;border:1px solid #feb9b9;color:#a52222;}
+.demo-success {background:#e4f8ed;border:1px solid #9fd6b7;color:#146838;}
+.demo-evidence {background:white;border:1px solid #dfe6ef;padding:24px;border-radius:14px;margin-top:24px;line-height:1.65;}
+.demo-evidence h2 {font-size:19px;margin-top:0;}
+.demo-evidence p {font-size:13px;color:#516278;word-break:break-word;}
+.demo-evidence pre {font-size:12px;white-space:pre-wrap;overflow-wrap:break-word;}
+.demo-disclaimer {font-size:12px;line-height:1.7;color:#75859a;margin-top:25px;}
+.demo-full-dashboard .topbar {display:none;}
+@media(max-width:700px) {.demo-nav{padding:12px 16px}.demo-nav strong span{display:none}.demo-main{margin-top:18px}.demo-login{padding:25px}.demo-step{align-items:flex-start;gap:9px}.demo-step>strong{font-size:10px}.demo-timer{width:100%}}
